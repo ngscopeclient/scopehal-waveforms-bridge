@@ -61,17 +61,10 @@ extern volatile bool g_waveformThreadQuit;
 
 extern size_t g_captureMemDepth;
 extern size_t g_memDepth;
-/*
 extern std::map<size_t, bool> g_channelOnDuringArm;
 extern std::map<size_t, bool> g_channelOn;
-extern std::map<size_t, double> g_roundedRange;
-extern std::map<size_t, PICO_COUPLING> g_coupling;
-extern std::map<size_t, PICO_CONNECT_PROBE_RANGE> g_range;
-extern std::map<size_t, enPS3000ARange> g_range_3000a;
-extern std::map<size_t, double> g_offset;
-extern std::map<size_t, PICO_BANDWIDTH_LIMITER> g_bandwidth;
-extern std::map<size_t, size_t> g_bandwidth_legacy;
 
+/*
 extern bool g_msoPodEnabled[2];
 extern bool g_msoPodEnabledDuringArm[2];
 extern int16_t g_msoPodThreshold[2][8];
@@ -96,7 +89,7 @@ extern std::mutex g_mutex;
 /*
 void Stop();
 */
-void StartCapture(bool stopFirst, bool force = false);
+void Start(bool force = false);
 /*PICO_STATUS StartInternal();
 void UpdateTrigger(bool force = false);
 void UpdateChannel(size_t chan);

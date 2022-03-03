@@ -48,28 +48,16 @@ bool ScpiSend(Socket& sock, const string& cmd);
 bool ScpiRecv(Socket& sock, string& str);
 void ParseScpiLine(const string& line, string& subject, string& cmd, bool& query, vector<string>& args);
 
-/*
 //Channel state
 map<size_t, bool> g_channelOn;
-map<size_t, PICO_COUPLING> g_coupling;
-map<size_t, PICO_CONNECT_PROBE_RANGE> g_range;
-map<size_t, enPS3000ARange> g_range_3000a;
-map<size_t, double> g_roundedRange;
-map<size_t, double> g_offset;
-map<size_t, PICO_BANDWIDTH_LIMITER> g_bandwidth;
-map<size_t, size_t> g_bandwidth_legacy;
-*/
 size_t g_memDepth = 1000000;
 int64_t g_sampleInterval = 0;	//in fs
 
-/*
 //Copy of state at timestamp of last arm event
 map<size_t, bool> g_channelOnDuringArm;
-*/
 int64_t g_sampleIntervalDuringArm = 0;
 size_t g_captureMemDepth = 0;
-/*map<size_t, double> g_offsetDuringArm;
-*/
+
 bool g_triggerArmed = false;
 bool g_triggerOneShot = false;
 bool g_memDepthChanged = false;
@@ -167,13 +155,14 @@ void ScpiServerThread()
 
 			//Extract channel ID from subject and clamp bounds
 			size_t channelId = 0;
-			size_t laneId = 0;
-			bool channelIsDigital = false;
-			if(isalpha(subject[0]))
+			//size_t laneId = 0;
+			//bool channelIsDigital = false;
+			if(toupper(subject[0]) == 'C')
 			{
-				channelId = min(static_cast<size_t>(subject[0] - 'A'), g_numAnalogInChannels);
-				channelIsDigital = false;
+				channelId = min(static_cast<size_t>(stoi(subject.c_str() + 1) - 1), g_numAnalogInChannels);
+				//channelIsDigital = false;
 			}
+			/*
 			else if(isdigit(subject[0]))
 			{
 				channelId = min(subject[0] - '0', 2) - 1;
@@ -181,6 +170,7 @@ void ScpiServerThread()
 				if(subject.length() >= 3)
 					laneId = min(subject[2] - '0', 7);
 			}
+			*/
 
 			if(query)
 			{
@@ -216,56 +206,35 @@ void ScpiServerThread()
 			else if(cmd == "EXIT")
 				break;
 
-			/*
 			else if(cmd == "ON")
 			{
 				lock_guard<mutex> lock(g_mutex);
+				g_channelOn[channelId] = true;
 
-				if(channelIsDigital)
-				{
-					PICO_CHANNEL podId = (PICO_CHANNEL)(PICO_PORT0 + channelId);
-					auto status = ps6000aSetDigitalPortOn(
-						g_hScope,
-						podId,
-						g_msoPodThreshold[channelId],
-						8,
-						g_msoHysteresis[channelId]);
-					if(status != PICO_OK)
-						LogError("ps6000aSetDigitalPortOn failed with code %x\n", status);
-					else
-						g_msoPodEnabled[channelId] = true;
-				}
-				else
-				{
-					g_channelOn[channelId] = true;
-					UpdateChannel(channelId);
-				}
+				if(!FDwfAnalogInChannelEnableSet(g_hScope, channelId, true))
+					LogError("FDwfAnalogInChannelEnableSet failed\n");
 
 				//We need to allocate new buffers for this channel
 				g_memDepthChanged = true;
 
+				if(g_triggerArmed)
+					Start();
 			}
 			else if(cmd == "OFF")
 			{
 				lock_guard<mutex> lock(g_mutex);
+				g_channelOn[channelId] = true;
 
-				if(channelIsDigital)
-				{
-					PICO_CHANNEL podId = (PICO_CHANNEL)(PICO_PORT0 + channelId);
-					auto status = ps6000aSetDigitalPortOff(g_hScope, podId);
-					if(status != PICO_OK)
-						LogError("ps6000aSetDigitalPortOff failed with code %x\n", status);
-				}
-				else
-				{
-					g_channelOn[channelId] = false;
-					UpdateChannel(channelId);
-				}
+				if(!FDwfAnalogInChannelEnableSet(g_hScope, channelId, false))
+					LogError("FDwfAnalogInChannelEnableSet failed\n");
 
-				//Free the memory used by this channel
+				//We need to allocate new buffers for this channel
 				g_memDepthChanged = true;
-			}
 
+				if(g_triggerArmed)
+					Start();
+			}
+			/*
 			else if( (cmd == "COUP") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);
@@ -278,33 +247,17 @@ void ScpiServerThread()
 
 				UpdateChannel(channelId);
 			}
+			*/
 			else if( (cmd == "OFFS") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);
 
 				double requestedOffset = stod(args[0]);
+				if(!FDwfAnalogInChannelOffsetSet(g_hScope, channelId, requestedOffset))
+					LogError("FDwfAnalogInChannelOffsetSet failed\n");
 
-				double maxoff;
-				double minoff;
-				float maxoff_f;
-				float minoff_f;
-
-				//Clamp to allowed range
-				switch(g_pico_type) {
-				case PICO3000A:
-					ps3000aGetAnalogueOffset(g_hScope, g_range_3000a[channelId], (PS3000A_COUPLING)g_coupling[channelId], &maxoff_f, &minoff_f);
-					maxoff = maxoff_f;
-					minoff = minoff_f;
-					break;
-				case PICO6000A:
-					ps6000aGetAnalogueOffsetLimits(g_hScope, g_range[channelId], g_coupling[channelId], &maxoff, &minoff);
-					break;
-				}
-				requestedOffset = min(maxoff, requestedOffset);
-				requestedOffset = max(minoff, requestedOffset);
-
-				g_offset[channelId] = requestedOffset;
-				UpdateChannel(channelId);
+				if(g_triggerArmed)
+					Start();
 			}
 
 			else if( (cmd == "RANGE") && (args.size() == 1) )
@@ -312,117 +265,45 @@ void ScpiServerThread()
 				lock_guard<mutex> lock(g_mutex);
 				auto range = stod(args[0]);
 
-				//If 50 ohm coupling, cap hardware voltage range to 5V
-				if(g_coupling[channelId] == PICO_DC_50OHM)
-					range = min(range, 5.0);
+				if(!FDwfAnalogInChannelRangeSet(g_hScope, channelId, range))
+					LogError("FDwfAnalogInChannelRangeSet failed\n");
 
-				if(range > 100 && g_pico_type == PICO6000A)
-				{
-					g_range[channelId] = PICO_X1_PROBE_200V;
-					g_roundedRange[channelId] = 200;
-				}
-				else if(range > 50 && g_pico_type == PICO6000A)
-				{
-					g_range[channelId] = PICO_X1_PROBE_100V;
-					g_roundedRange[channelId] = 100;
-				}
-				else if(range > 20)
-				{
-					g_range[channelId] = PICO_X1_PROBE_50V;
-					g_range_3000a[channelId] = PS3000A_50V;
-					g_roundedRange[channelId] = 50;
-				}
-				else if(range > 10)
-				{
-					g_range[channelId] = PICO_X1_PROBE_20V;
-					g_range_3000a[channelId] = PS3000A_20V;
-					g_roundedRange[channelId] = 20;
-				}
-				else if(range > 5)
-				{
-					g_range[channelId] = PICO_X1_PROBE_10V;
-					g_range_3000a[channelId] = PS3000A_10V;
-					g_roundedRange[channelId] = 10;
-				}
-				else if(range > 2)
-				{
-					g_range[channelId] = PICO_X1_PROBE_5V;
-					g_range_3000a[channelId] = PS3000A_5V;
-					g_roundedRange[channelId] = 5;
-				}
-				else if(range > 1)
-				{
-					g_range[channelId] = PICO_X1_PROBE_2V;
-					g_range_3000a[channelId] = PS3000A_2V;
-					g_roundedRange[channelId] = 2;
-				}
-				else if(range > 0.5)
-				{
-					g_range[channelId] = PICO_X1_PROBE_1V;
-					g_range_3000a[channelId] = PS3000A_1V;
-					g_roundedRange[channelId] = 1;
-				}
-				else if(range > 0.2)
-				{
-					g_range[channelId] = PICO_X1_PROBE_500MV;
-					g_range_3000a[channelId] = PS3000A_500MV;
-					g_roundedRange[channelId] = 0.5;
-				}
-				else if(range > 0.1)
-				{
-					g_range[channelId] = PICO_X1_PROBE_200MV;
-					g_range_3000a[channelId] = PS3000A_200MV;
-					g_roundedRange[channelId] = 0.2;
-				}
-				else if(range >= 0.05)
-				{
-					g_range[channelId] = PICO_X1_PROBE_100MV;
-					g_range_3000a[channelId] = PS3000A_100MV;
-					g_roundedRange[channelId] = 0.1;
-				}
-				else if(range >= 0.02)
-				{
-					g_range[channelId] = PICO_X1_PROBE_50MV;
-					g_range_3000a[channelId] = PS3000A_50MV;
-					g_roundedRange[channelId] = 0.05;
-				}
-				else if(range >= 0.01)
-				{
-					g_range[channelId] = PICO_X1_PROBE_20MV;
-					g_range_3000a[channelId] = PS3000A_20MV;
-					g_roundedRange[channelId] = 0.02;
-				}
-				else
-				{
-					g_range[channelId] = PICO_X1_PROBE_10MV;
-					g_range_3000a[channelId] = PS3000A_10MV;
-					g_roundedRange[channelId] = 0.01;
-				}
-
-				UpdateChannel(channelId);
-
+				/*
 				//Update trigger if this is the trigger channel.
 				//Trigger is digital and threshold is specified in ADC counts.
 				//We want to maintain constant trigger level in volts, not ADC counts.
 				if(g_triggerChannel == channelId)
 					UpdateTrigger();
+				*/
+
+				if(g_triggerArmed)
+					Start();
 			}
-			*/
+
 			else if( (cmd == "RATE") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);
 
 				int64_t rate = stoull(args[0]);
-				FDwfAnalogInFrequencySet(g_hScope, rate);
+				if(!FDwfAnalogInFrequencySet(g_hScope, rate))
+					LogError("FDwfAnalogInFrequencySet failed\n");
 				g_sampleInterval = 1e15 / rate;
+
+				if(g_triggerArmed)
+					Start();
 			}
 
 			else if( (cmd == "DEPTH") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);
 				g_memDepth = stoull(args[0]);
-				FDwfAnalogInBufferSizeSet(g_hScope, g_memDepth);
+				if(!FDwfAnalogInBufferSizeSet(g_hScope, g_memDepth))
+					LogError("FDwfAnalogInBufferSizeSet failed\n");
+
 				g_memDepthChanged = true;
+
+				if(g_triggerArmed)
+					Start();
 			}
 
 			else if( (cmd == "START") || (cmd == "SINGLE") )
@@ -463,23 +344,14 @@ void ScpiServerThread()
 				*/
 
 				//Start the capture
-				StartCapture(false);
+				Start();
 				g_triggerOneShot = (cmd == "SINGLE");
 			}
 
 			else if(cmd == "FORCE")
 			{
-				/*
-				//Clear out any old trigger config
-				if(g_triggerArmed)
-				{
-					Stop();
-					g_triggerArmed = false;
-				}
-
-				UpdateTrigger(true);
-				StartCapture(true, true);
-				*/
+				lock_guard<mutex> lock(g_mutex);
+				Start(true);
 			}
 
 			else if(cmd == "STOP")
@@ -820,29 +692,8 @@ void Stop()
 	}
 }
 
-PICO_STATUS StartInternal()
-{
-	//Calculate pre/post trigger time configuration based on trigger delay
-	int64_t triggerDelaySamples = g_triggerDelay / g_sampleInterval;
-	size_t nPreTrigger = min(max(triggerDelaySamples, 0L), (int64_t)g_memDepth);
-	size_t nPostTrigger = g_memDepth - nPreTrigger;
-	g_triggerSampleIndex = nPreTrigger;
-
-	switch(g_pico_type)
-	{
-		case PICO3000A:
-			// TODO: why the 1
-			return ps3000aRunBlock(g_hScope, nPreTrigger, nPostTrigger, g_timebase, 1, NULL, 0, NULL, NULL);
-
-		case PICO6000A:
-			return ps6000aRunBlock(g_hScope, nPreTrigger, nPostTrigger, g_timebase, NULL, 0, NULL, NULL);
-
-		default:
-			return PICO_OK;
-	}
-}
 */
-void StartCapture(bool stopFirst, bool force)
+void Start(bool force)
 {
 	g_captureMemDepth = g_memDepth;
 
@@ -855,22 +706,12 @@ void StartCapture(bool stopFirst, bool force)
 	}
 	*/
 
-	/*
-	g_offsetDuringArm = g_offset;
 	g_channelOnDuringArm = g_channelOn;
+	/*
 	for(size_t i=0; i<g_numDigitalPods; i++)
 		g_msoPodEnabledDuringArm[i] = g_msoPodEnabled[i];
 	*/
 	g_sampleIntervalDuringArm = g_sampleInterval;
-	/*
-	LogTrace("StartCapture stopFirst %d memdepth %zu\n", stopFirst, g_captureMemDepth);
-
-	PICO_STATUS status;
-	status = PICO_RESERVED_1;
-	if(stopFirst)
-		Stop();
-	status = StartInternal();
-	*/
 
 	//Set acquisition mode
 	FDwfAnalogInAcquisitionModeSet(g_hScope, acqmodeSingle);

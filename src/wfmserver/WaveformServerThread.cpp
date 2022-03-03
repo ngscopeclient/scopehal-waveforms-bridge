@@ -78,15 +78,12 @@ void WaveformServerThread()
 
 			int samplesLeft;
 			FDwfAnalogInStatusSamplesLeft(g_hScope, &samplesLeft);
-			LogDebug("Samples left: %d\n", samplesLeft);
 
 			if(samplesLeft == 0)
 				break;
 
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
 		}
-
-		LogDebug("Got a waveform\n");
 
 		{
 			lock_guard<mutex> lock(g_mutex);
@@ -129,20 +126,18 @@ void WaveformServerThread()
 
 			//Figure out how many channels are active in this capture
 			numchans = 0;
-			/*for(size_t i=0; i<g_numChannels; i++)
+			for(size_t i=0; i<g_numAnalogInChannels; i++)
 			{
 				if(g_channelOnDuringArm[i])
 					numchans ++;
 			}
+			/*
 			for(size_t i=0; i<g_numDigitalPods; i++)
 			{
 				if(g_msoPodEnabledDuringArm[i])
 					numchans ++;
 			}
 			*/
-
-			//FIXME
-			numchans = g_numAnalogInChannels;
 		}
 
 		//Send the channel count to the client
@@ -190,7 +185,7 @@ void WaveformServerThread()
 		else
 		{
 			lock_guard<mutex> lock(g_mutex);
-			StartCapture(false);
+			Start();
 		}
 	}
 

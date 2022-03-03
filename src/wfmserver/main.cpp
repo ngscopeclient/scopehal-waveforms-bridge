@@ -231,21 +231,15 @@ int main(int argc, char* argv[])
 	//For now, hard code config 1 on to get best scope performance on the ADP3450
 	int nconfig = 1;
 	LogDebug("Opening device %d in config %d\n", ndevice, nconfig);
-	FDwfDeviceConfigOpen(ndevice, nconfig, &g_hScope);
+	if(!FDwfDeviceConfigOpen(ndevice, nconfig, &g_hScope))
+	{
+		LogError("Failed to open device\n");
+		return 1;
+	}
 
 	//Initialize analog channels
 	for(size_t i=0; i<g_numAnalogInChannels; i++)
-	{
-		/*
 		g_channelOn[i] = false;
-		g_coupling[i] = PICO_DC;
-		g_range[i] = PICO_X1_PROBE_1V;
-		g_range_3000a[i] = PS3000A_1V;
-		g_offset[i] = 0;
-		g_bandwidth[i] = PICO_BW_FULL;
-		g_bandwidth_legacy[i] = PS3000A_BW_FULL;
-		*/
-	}
 
 	//Set up signal handlers
 	signal(SIGINT, OnQuit);

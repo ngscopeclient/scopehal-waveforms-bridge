@@ -97,4 +97,6 @@ void UpdateChannel(size_t chan);
 extern bool g_lastTriggerWasForced;
 */
 
+#define FS_PER_SECOND 1e15
+
 #endif

@@ -186,8 +186,32 @@ void ScpiServerThread()
 				//Get legal sample rates for the current configuration
 				else if(cmd == "RATES")
 				{
+					double minFreq;
+					double maxFreq;
+					FDwfAnalogInFrequencyInfo(g_hScope, &minFreq, &maxFreq);
+
+					//Cap min freq to 1 kHz
+					minFreq = max(minFreq, 1000.0);
+
+					//Report sample rates in 1-2-5 steps
 					string ret = "";
-					ret = "100000000";		//for now, only 100 Msps supported
+					double freq = maxFreq;
+					while(freq >= minFreq)
+					{
+						double f1 = freq;
+						double f2 = freq / 2;
+						double f3 = freq / 5;
+						freq /= 10;
+
+						double interval1 = FS_PER_SECOND / f1;
+						double interval2 = FS_PER_SECOND / f2;
+						double interval3 = FS_PER_SECOND / f3;
+
+						ret += to_string(interval1) + ",";
+						ret += to_string(interval2) + ",";
+						ret += to_string(interval3) + ",";
+					}
+
 					ScpiSend(client, ret);
 				}
 
@@ -195,7 +219,7 @@ void ScpiServerThread()
 				else if(cmd == "DEPTHS")
 				{
 					string ret = "";
-					ret = "65536";			//for now, only 64K supported
+					ret = "65536,";			//for now, only 64K supported
 					ScpiSend(client, ret);
 				}
 

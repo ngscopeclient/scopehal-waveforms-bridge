@@ -340,10 +340,9 @@ void ScpiServerThread()
 					continue;
 				}
 
-				/*
 				//Make sure we've got something to capture
 				bool anyChannels = false;
-				for(size_t i=0; i<g_numChannels; i++)
+				for(size_t i=0; i<g_numAnalogInChannels; i++)
 				{
 					if(g_channelOn[i])
 					{
@@ -351,6 +350,7 @@ void ScpiServerThread()
 						break;
 					}
 				}
+				/*
 				for(size_t i=0; i<g_numDigitalPods; i++)
 				{
 					if(g_msoPodEnabled[i])
@@ -359,13 +359,13 @@ void ScpiServerThread()
 						break;
 					}
 				}
+				*/
 
 				if(!anyChannels)
 				{
 					LogVerbose("Ignoring START command because no channels are active\n");
 					continue;
 				}
-				*/
 
 				//Start the capture
 				Start();
@@ -388,67 +388,68 @@ void ScpiServerThread()
 				*/
 			}
 
-			/*
 			else if(subject == "TRIG")
 			{
-				if( (cmd == "EDGE:DIR") && (args.size() == 1) )
+				if( (cmd == "MODE") && (args.size() == 1) )
+				{
+					if(args[0] == "EDGE")
+					{
+						if(!FDwfAnalogInTriggerTypeSet(g_hScope, trigtypeEdge))
+							LogError("FDwfAnalogInTriggerTypeSet failed\n");
+					}
+
+					else
+						LogWarning("Unknown trigger mode %s\n", args[0].c_str());
+				}
+
+				else if( (cmd == "EDGE:DIR") && (args.size() == 1) )
 				{
 					lock_guard<mutex> lock(g_mutex);
 
+					DwfTriggerSlope condition;
 					if(args[0] == "RISING")
-						g_triggerDirection = PICO_RISING;
+						condition = DwfTriggerSlopeRise;
 					else if(args[0] == "FALLING")
-						g_triggerDirection = PICO_FALLING;
-					else if(args[0] == "ANY")
-						g_triggerDirection = PICO_RISING_OR_FALLING;
+						condition = DwfTriggerSlopeFall;
+					else// if(args[0] == "ANY")
+						condition = DwfTriggerSlopeEither;
 
-					UpdateTrigger();
+					if(!FDwfAnalogInTriggerConditionSet(g_hScope, condition))
+						LogError("FDwfAnalogInTriggerConditionSet failed\n");
+
+					if(g_triggerArmed)
+						Start();
 				}
 
 				else if( (cmd == "LEV") && (args.size() == 1) )
 				{
 					lock_guard<mutex> lock(g_mutex);
 
-					g_triggerVoltage = stof(args[0]);
-					UpdateTrigger();
+					if(!FDwfAnalogInTriggerLevelSet(g_hScope, stod(args[0])))
+						LogError("FDwfAnalogInTriggerLevelSet failed\n");
+
+					if(g_triggerArmed)
+						Start();
 				}
 
 				else if( (cmd == "SOU") && (args.size() == 1) )
 				{
 					lock_guard<mutex> lock(g_mutex);
 
-					if(isalpha(args[0][0]))
-					{
-						g_triggerChannel = args[0][0] - 'A';
-						if(!g_channelOn[g_triggerChannel])
-						{
-							LogDebug("Trigger channel wasn't on, enabling it\n");
-							g_channelOn[g_triggerChannel] = true;
-							UpdateChannel(g_triggerChannel);
-						}
-					}
-					else if( (isdigit(args[0][0])) && (args[0].length() == 3) )
-					{
-						int npod = args[0][0] - '1';
-						int nchan = args[0][2] - '0';
-						g_triggerChannel = g_numChannels + npod*8 + nchan;
+					if(!FDwfAnalogInTriggerSourceSet(g_hScope, trigsrcDetectorAnalogIn))
+						LogError("FDwfAnalogInTriggerSourceSet failed\n");
 
-						if(!g_msoPodEnabled[npod])
-						{
-							LogDebug("Trigger pod wasn't on, enabling it\n");
-							EnableMsoPod(npod);
-						}
-					}
+					if(!FDwfAnalogInTriggerAutoTimeoutSet(g_hScope, 0))
+						LogError("FDwfAnalogInTriggerAutoTimeoutSet failed\n");
 
-					bool wasOn = g_triggerArmed;
-					Stop();
+					if(!FDwfAnalogInTriggerChannelSet(g_hScope, args[0][1] - '1'))
+						LogError("FDwfAnalogInTriggerChannelSet failed\n");
 
-					UpdateTrigger();
-
-					if(wasOn)
-						StartCapture(false);
+					if(g_triggerArmed)
+						Start();
 				}
 
+				/*
 				else if( (cmd == "DELAY") && (args.size() == 1) )
 				{
 					lock_guard<mutex> lock(g_mutex);
@@ -456,7 +457,7 @@ void ScpiServerThread()
 					g_triggerDelay = stoull(args[0]);
 					UpdateTrigger();
 				}
-
+				*/
 				else
 				{
 					LogDebug("Unrecognized trigger command received: %s\n", line.c_str());
@@ -466,7 +467,6 @@ void ScpiServerThread()
 						LogDebug("Arg: %s\n", arg.c_str());
 				}
 			}
-			*/
 
 			//TODO: bandwidth limiter
 

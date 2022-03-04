@@ -380,12 +380,9 @@ void ScpiServerThread()
 
 			else if(cmd == "STOP")
 			{
-				/*
 				lock_guard<mutex> lock(g_mutex);
 
 				Stop();
-				g_triggerArmed = false;
-				*/
 			}
 
 			else if(subject == "TRIG")
@@ -589,146 +586,15 @@ void UpdateChannel(size_t chan)
 }
 */
 
-/**
-	@brief Pushes trigger configuration to the instrument
- */
-/*
-void UpdateTrigger(bool force)
-{
-	//Timeout, in microseconds, before initiating a trigger
-	//Force trigger is really just a one-shot auto trigger with a 1us delay.
-	uint32_t timeout = 0;
-	if(force)
-	{
-		timeout = 1;
-		g_lastTriggerWasForced = true;
-	}
-	else
-		g_lastTriggerWasForced = false;
-
-	bool triggerIsAnalog = (g_triggerChannel < g_numChannels);
-
-	//Convert threshold from volts to ADC counts
-	float offset = 0;
-	if(triggerIsAnalog)
-		offset = g_offset[g_triggerChannel];
-	float scale = 1;
-	if(triggerIsAnalog)
-	{
-		scale = g_roundedRange[g_triggerChannel] / 32512;
-		if(scale == 0)
-			scale = 1;
-	}
-	float trig_code = (g_triggerVoltage - offset) / scale;
-	//LogDebug("UpdateTrigger: trig_code = %.0f for %f V, scale=%f\n", round(trig_code), g_triggerVoltage, scale);
-
-	//This can happen early on during initialization.
-	//Bail rather than dividing by zero.
-	if(g_sampleInterval == 0)
-		return;
-
-	//Add delay before start of capture if needed
-	int64_t triggerDelaySamples = g_triggerDelay / g_sampleInterval;
-	uint64_t delay = 0;
-	if(triggerDelaySamples < 0)
-		delay = -triggerDelaySamples;
-
-	switch(g_pico_type)
-	{
-		case PICO3000A:
-			ps3000aSetSimpleTrigger(
-				g_hScope,
-				1,
-				(PS3000A_CHANNEL)g_triggerChannel,
-				round(trig_code),
-				(enPS3000AThresholdDirection)g_triggerDirection, // same as 6000a api
-				delay,
-				timeout);
-			break;
-
-		case PICO6000A:
-			if(g_triggerChannel < g_numChannels)
-			{
-				ps6000aSetSimpleTrigger(
-					g_hScope,
-					1,
-					(PICO_CHANNEL)g_triggerChannel,
-					round(trig_code),
-					g_triggerDirection,
-					delay,
-					timeout);
-			}
-			else
-			{
-				//Remove old trigger conditions
-				ps6000aSetTriggerChannelConditions(
-					g_hScope,
-					NULL,
-					0,
-					PICO_CLEAR_ALL);
-
-				//Set up new conditions
-				int ntrig = g_triggerChannel - g_numChannels;
-				int trigpod = ntrig / 8;
-				int triglane = ntrig % 8;
-				PICO_CONDITION cond;
-				cond.source = static_cast<PICO_CHANNEL>(PICO_PORT0 + trigpod);
-				cond.condition = PICO_CONDITION_TRUE;
-				ps6000aSetTriggerChannelConditions(
-					g_hScope,
-					&cond,
-					1,
-					PICO_ADD);
-
-				//Set up configuration on the selected channel
-				PICO_DIGITAL_CHANNEL_DIRECTIONS dirs;
-				dirs.channel = static_cast<PICO_PORT_DIGITAL_CHANNEL>(PICO_PORT_DIGITAL_CHANNEL0 + triglane);
-				dirs.direction = PICO_DIGITAL_DIRECTION_RISING;				//TODO: configurable
-				ps6000aSetTriggerDigitalPortProperties(
-					g_hScope,
-					cond.source,
-					&dirs,
-					1);
-
-				//ps6000aSetTriggerDigitalPortProperties doesn't have a timeout!
-				//Should we call ps6000aSetTriggerChannelProperties with no elements to do this?
-				if(force)
-					LogWarning("Force trigger doesn't currently work if trigger source is digital\n");
-			}
-			break;
-	}
-
-	if(g_triggerArmed)
-		StartCapture(true);
-}
-
 void Stop()
 {
-	switch(g_pico_type)
-	{
-		case PICO3000A:
-			ps3000aStop(g_hScope);
-			break;
-
-		case PICO6000A:
-			ps6000aStop(g_hScope);
-			break;
-	}
+	FDwfAnalogInConfigure(g_hScope, true, false);
+	g_triggerArmed = false;
 }
 
-*/
 void Start(bool force)
 {
 	g_captureMemDepth = g_memDepth;
-
-	/*
-	//If previous trigger was forced, we need to reconfigure the trigger to be not-forced now
-	if(g_lastTriggerWasForced && !force)
-	{
-		Stop();
-		UpdateTrigger();
-	}
-	*/
 
 	g_channelOnDuringArm = g_channelOn;
 	/*

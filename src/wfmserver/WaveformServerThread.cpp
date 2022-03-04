@@ -189,11 +189,9 @@ void WaveformServerThread()
 		}
 	}
 
-	/*
 	//Clean up temporary buffers
 	for(auto it : waveformBuffers)
 		delete[] it.second;
-	*/
 }
 
 /*

@@ -62,14 +62,14 @@ bool g_triggerArmed = false;
 bool g_triggerOneShot = false;
 bool g_memDepthChanged = false;
 
-/*
-//Trigger state (for now, only simple single-channel trigger supported)
-int64_t g_triggerDelay = 0;
-PICO_THRESHOLD_DIRECTION g_triggerDirection = PICO_RISING;
-float g_triggerVoltage = 0;
+//Trigger state (for now, only simple edge trigger supported)
+double g_triggerVoltage = 0;
 size_t g_triggerChannel = 0;
 size_t g_triggerSampleIndex;
+int64_t g_triggerDelay;
+double g_triggerDeltaSec;
 
+/*
 //Thresholds for MSO pods
 size_t g_numDigitalPods = 2;
 int16_t g_msoPodThreshold[2][8] = { {0}, {0} };
@@ -241,6 +241,7 @@ void ScpiServerThread()
 				//We need to allocate new buffers for this channel
 				g_memDepthChanged = true;
 
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -255,6 +256,7 @@ void ScpiServerThread()
 				//We need to allocate new buffers for this channel
 				g_memDepthChanged = true;
 
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -280,6 +282,20 @@ void ScpiServerThread()
 				if(!FDwfAnalogInChannelOffsetSet(g_hScope, channelId, requestedOffset))
 					LogError("FDwfAnalogInChannelOffsetSet failed\n");
 
+				//need to re-arm trigger to apply changes
+				if(g_triggerArmed)
+					Start();
+			}
+
+			else if( (cmd == "ATTEN") && (args.size() == 1) )
+			{
+				lock_guard<mutex> lock(g_mutex);
+
+				double requestedAtten = stod(args[0]);
+				if(!FDwfAnalogInChannelAttenuationSet(g_hScope, channelId, requestedAtten))
+					LogError("FDwfAnalogInChannelAttenuationSet failed\n");
+
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -292,14 +308,7 @@ void ScpiServerThread()
 				if(!FDwfAnalogInChannelRangeSet(g_hScope, channelId, range))
 					LogError("FDwfAnalogInChannelRangeSet failed\n");
 
-				/*
-				//Update trigger if this is the trigger channel.
-				//Trigger is digital and threshold is specified in ADC counts.
-				//We want to maintain constant trigger level in volts, not ADC counts.
-				if(g_triggerChannel == channelId)
-					UpdateTrigger();
-				*/
-
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -311,8 +320,9 @@ void ScpiServerThread()
 				int64_t rate = stoull(args[0]);
 				if(!FDwfAnalogInFrequencySet(g_hScope, rate))
 					LogError("FDwfAnalogInFrequencySet failed\n");
-				g_sampleInterval = 1e15 / rate;
+				g_sampleInterval = FS_PER_SECOND / rate;
 
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -326,6 +336,7 @@ void ScpiServerThread()
 
 				g_memDepthChanged = true;
 
+				//need to re-arm trigger to apply changes
 				if(g_triggerArmed)
 					Start();
 			}
@@ -414,6 +425,7 @@ void ScpiServerThread()
 					if(!FDwfAnalogInTriggerConditionSet(g_hScope, condition))
 						LogError("FDwfAnalogInTriggerConditionSet failed\n");
 
+					//need to re-arm trigger to apply changes
 					if(g_triggerArmed)
 						Start();
 				}
@@ -422,9 +434,12 @@ void ScpiServerThread()
 				{
 					lock_guard<mutex> lock(g_mutex);
 
-					if(!FDwfAnalogInTriggerLevelSet(g_hScope, stod(args[0])))
+					g_triggerVoltage = stod(args[0]);
+
+					if(!FDwfAnalogInTriggerLevelSet(g_hScope, g_triggerVoltage))
 						LogError("FDwfAnalogInTriggerLevelSet failed\n");
 
+					//need to re-arm trigger to apply changes
 					if(g_triggerArmed)
 						Start();
 				}
@@ -439,22 +454,42 @@ void ScpiServerThread()
 					if(!FDwfAnalogInTriggerAutoTimeoutSet(g_hScope, 0))
 						LogError("FDwfAnalogInTriggerAutoTimeoutSet failed\n");
 
-					if(!FDwfAnalogInTriggerChannelSet(g_hScope, args[0][1] - '1'))
+					g_triggerChannel = args[0][1] - '1';
+					if(!FDwfAnalogInTriggerChannelSet(g_hScope, g_triggerChannel))
 						LogError("FDwfAnalogInTriggerChannelSet failed\n");
 
+					//need to re-arm trigger to apply changes
 					if(g_triggerArmed)
 						Start();
 				}
 
-				/*
 				else if( (cmd == "DELAY") && (args.size() == 1) )
 				{
 					lock_guard<mutex> lock(g_mutex);
-
 					g_triggerDelay = stoull(args[0]);
-					UpdateTrigger();
+
+					//For single trigger mode, trigger position is WRT midpoint of buffer
+					//but the TRIG:DELAY command measures WRT start of buffer.
+					int64_t offset_samples = g_memDepth/2;
+					int64_t offset_fs = offset_samples * g_sampleInterval;
+					int64_t position_fs = offset_fs - g_triggerDelay;
+
+					//After setting trigger time, see what we actually got.
+					//Hardware may round it.
+					double position_sec_requested = position_fs * SECONDS_PER_FS;
+					if(!FDwfAnalogInTriggerPositionSet(g_hScope, position_sec_requested))
+						LogError("FDwfAnalogInTriggerPositionSet failed\n");
+					double position_sec_actual;
+					if(!FDwfAnalogInTriggerPositionGet(g_hScope, &position_sec_actual))
+						LogError("FDwfAnalogInTriggerPositionGet failed\n");
+
+					g_triggerDeltaSec = position_sec_actual - position_sec_requested;
+
+					//need to re-arm trigger to apply changes
+					if(g_triggerArmed)
+						Start();
 				}
-				*/
+
 				else
 				{
 					LogDebug("Unrecognized trigger command received: %s\n", line.c_str());
@@ -553,39 +588,6 @@ void ParseScpiLine(const string& line, string& subject, string& cmd, bool& query
 	}
 }
 
-/**
-	@brief Pushes channel configuration to the instrument
- */
-/*
-void UpdateChannel(size_t chan)
-{
-	if(g_pico_type == PICO3000A)
-	{
-		ps3000aSetChannel(g_hScope, (PS3000A_CHANNEL)chan, g_channelOn[chan],
-			(PS3000A_COUPLING)g_coupling[chan], g_range_3000a[chan], -g_offset[chan]);
-		ps3000aSetBandwidthFilter(g_hScope, (PS3000A_CHANNEL)chan,
-			(PS3000A_BANDWIDTH_LIMITER)g_bandwidth_legacy[chan]);
-		if(chan == g_triggerChannel)
-			UpdateTrigger();
-		return;
-	}
-
-	if(g_channelOn[chan])
-	{
-		ps6000aSetChannelOn(g_hScope, (PICO_CHANNEL)chan,
-			g_coupling[chan], g_range[chan], -g_offset[chan], g_bandwidth[chan]);
-
-		//We use software triggering based on raw ADC codes.
-		//Any time we change the frontend configuration on the trigger channel, it has to be reconfigured.
-		//TODO: handle multi-input triggers
-		if(chan == g_triggerChannel)
-			UpdateTrigger();
-	}
-	else
-		ps6000aSetChannelOff(g_hScope, (PICO_CHANNEL)chan);
-}
-*/
-
 void Stop()
 {
 	FDwfAnalogInConfigure(g_hScope, true, false);
@@ -594,14 +596,17 @@ void Stop()
 
 void Start(bool force)
 {
+	//Save configuration
 	g_captureMemDepth = g_memDepth;
-
 	g_channelOnDuringArm = g_channelOn;
+	g_sampleIntervalDuringArm = g_sampleInterval;
 	/*
 	for(size_t i=0; i<g_numDigitalPods; i++)
 		g_msoPodEnabledDuringArm[i] = g_msoPodEnabled[i];
 	*/
-	g_sampleIntervalDuringArm = g_sampleInterval;
+
+	//Precalculate some stuff we need for trigger interpolation
+	g_triggerSampleIndex = g_triggerDelay / g_sampleInterval;
 
 	//Set acquisition mode
 	FDwfAnalogInAcquisitionModeSet(g_hScope, acqmodeSingle);

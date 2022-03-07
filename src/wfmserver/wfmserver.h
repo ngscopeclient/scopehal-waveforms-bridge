@@ -73,13 +73,12 @@ extern PICO_DIGITAL_PORT_HYSTERESIS g_msoHysteresis[2];
 */
 extern int64_t g_sampleInterval;
 extern int64_t g_sampleIntervalDuringArm;
-/*
-extern std::map<size_t, double> g_offsetDuringArm;
 
+extern int64_t g_triggerDelay;
 extern size_t g_triggerSampleIndex;
 extern size_t g_triggerChannel;
-extern float g_triggerVoltage;
-*/
+extern double g_triggerDeltaSec;
+extern double g_triggerVoltage;
 extern bool g_triggerArmed;
 extern bool g_triggerOneShot;
 extern bool g_memDepthChanged;
@@ -88,13 +87,8 @@ extern std::mutex g_mutex;
 
 void Stop();
 void Start(bool force = false);
-/*PICO_STATUS StartInternal();
-void UpdateTrigger(bool force = false);
-void UpdateChannel(size_t chan);
-
-extern bool g_lastTriggerWasForced;
-*/
 
 #define FS_PER_SECOND 1e15
+#define SECONDS_PER_FS 1e-15
 
 #endif

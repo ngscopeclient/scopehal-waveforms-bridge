@@ -38,9 +38,7 @@
 using namespace std;
 
 volatile bool g_waveformThreadQuit = false;
-/*float InterpolateTriggerTime(int16_t* buf);
-
-vector<PICO_CHANNEL> g_channelIDs;*/
+float InterpolateTriggerTime(double* buf);
 
 void WaveformServerThread()
 {
@@ -148,9 +146,16 @@ void WaveformServerThread()
 
 		//Interpolate trigger position if we're using an analog level trigger
 		//bool triggerIsAnalog = (g_triggerChannel < g_numChannels);
+		bool triggerIsAnalog = true;
 		float trigphase = 0;
-		//if(triggerIsAnalog)
-		//	trigphase = InterpolateTriggerTime(waveformBuffers[g_triggerChannel]);
+		if(triggerIsAnalog)
+		{
+			//Interpolate zero crossing to get sub-sample precision
+			trigphase = -InterpolateTriggerTime(waveformBuffers[g_triggerChannel]) * g_sampleIntervalDuringArm;
+
+			//Correct for set point error
+			trigphase += (g_sampleIntervalDuringArm  + g_triggerDeltaSec*FS_PER_SECOND);
+		}
 
 		//Send data for each channel to the client
 		for(size_t i=0; i<g_numAnalogInChannels; i++)
@@ -194,21 +199,16 @@ void WaveformServerThread()
 		delete[] it.second;
 }
 
-/*
-float InterpolateTriggerTime(int16_t* buf)
+float InterpolateTriggerTime(double* buf)
 {
-	if(g_triggerSampleIndex <= 0)
+	if(g_triggerSampleIndex >= g_memDepth-1)
 		return 0;
 
-	float trigscale = g_roundedRange[g_triggerChannel] / 32512;
-	float trigoff = g_offsetDuringArm[g_triggerChannel];
-
-	float fa = buf[g_triggerSampleIndex-1] * trigscale + trigoff;
-	float fb = buf[g_triggerSampleIndex] * trigscale + trigoff;
+	float fa = buf[g_triggerSampleIndex];
+	float fb = buf[g_triggerSampleIndex+1];
 
 	//no need to divide by time, sample spacing is normalized to 1 timebase unit
 	float slope = (fb - fa);
 	float delta = g_triggerVoltage - fa;
 	return delta / slope;
 }
-*/

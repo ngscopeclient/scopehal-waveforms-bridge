@@ -42,6 +42,16 @@
 #include <string.h>
 #include <math.h>
 
+//These functions are not yet in the Digilent API headers (will be in the next release)
+//Prototypes from email conversation with Attila at Digilent
+//TODO: delete this once the next version of the SDK is released
+typedef int DwfAnalogCoupling;
+const DwfAnalogCoupling DwfAnalogCouplingDC = 0;
+const DwfAnalogCoupling DwfAnalogCouplingAC = 1;
+DWFAPI int FDwfAnalogInChannelCouplingInfo(HDWF hdwf, int *pfscoupling); // use IsBitSet
+DWFAPI int FDwfAnalogInChannelCouplingSet(HDWF hdwf, int idxChannel, DwfAnalogCoupling coupling);
+DWFAPI int FDwfAnalogInChannelCouplingGet(HDWF hdwf, int idxChannel, DwfAnalogCoupling *pcoupling);
+
 using namespace std;
 
 bool ScpiSend(Socket& sock, const string& cmd);
@@ -260,20 +270,19 @@ void ScpiServerThread()
 				if(g_triggerArmed)
 					Start();
 			}
-			/*
 			else if( (cmd == "COUP") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);
+				DwfAnalogCoupling coup;
 				if(args[0] == "DC1M")
-					g_coupling[channelId] = PICO_DC;
-				else if(args[0] == "AC1M")
-					g_coupling[channelId] = PICO_AC;
-				else if(args[0] == "DC50")
-					g_coupling[channelId] = PICO_DC_50OHM;
+					coup = DwfAnalogCouplingDC;
+				else// if(args[0] == "AC1M")
+					coup = DwfAnalogCouplingAC;
 
-				UpdateChannel(channelId);
+				if(!FDwfAnalogInChannelCouplingSet(g_hScope, channelId, coup))
+					LogError("FDwfAnalogInChannelCouplingSet failed\n");
 			}
-			*/
+
 			else if( (cmd == "OFFS") && (args.size() == 1) )
 			{
 				lock_guard<mutex> lock(g_mutex);

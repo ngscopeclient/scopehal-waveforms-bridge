@@ -47,8 +47,10 @@ void help()
 			"\n"
 			"  [general options]:\n"
 			"    --help                        : this message...\n"
-			"    --scpi-port port              : specifies the SCPI control plane port (default 5025)\n"
-			"    --waveform-port port          : specifies the binary waveform data port (default 5026)\n"
+			"    --scpi-port nnn               : specifies the SCPI control plane port (default 5025)\n"
+			"    --waveform-port nnn           : specifies the binary waveform data port (default 5026)\n"
+			"    --device nnn                  : specifies the device to open if more than one is present\n"
+			"    --config nnn                  : specifies the configuration for the device to use\n"
 			"\n"
 			"  [logger options]:\n"
 			"    levels: ERROR, WARNING, NOTICE, VERBOSE, DEBUG\n"
@@ -83,6 +85,8 @@ int main(int argc, char* argv[])
 	//Parse command-line arguments
 	uint16_t scpi_port = 5025;
 	uint16_t waveform_port = 5026;
+	int device = 0;
+	int config = 0;
 	for(int i=1; i<argc; i++)
 	{
 		string s(argv[i]);
@@ -108,6 +112,16 @@ int main(int argc, char* argv[])
 			if(i+1 < argc)
 				waveform_port = atoi(argv[++i]);
 		}
+		else if(s == "--device")
+		{
+			if(i+1 < argc)
+				device = atoi(argv[++i]);
+		}
+		else if(s == "--config")
+		{
+			if(i+1 < argc)
+				config = atoi(argv[++i]);
+		}
 
 		else
 		{
@@ -121,13 +135,21 @@ int main(int argc, char* argv[])
 
 	//Dump the Digilent API version
 	char version[32] = "";
-	FDwfGetVersion(version);
+	if(!FDwfGetVersion(version))
+	{
+		LogError("FDwfGetVersion failed\n");
+		return 1;
+	}
 	LogDebug("Digilent API %s\n", version);
 
 	//Initial setup: enumerate devices
 	LogNotice("Looking for Digilent devices...\n");
 	int numDevices;
-	FDwfEnum(enumfilterAll, &numDevices);
+	if(!FDwfEnum(enumfilterAll, &numDevices))
+	{
+		LogError("FDwfEnum failed\n");
+		return 1;
+	}
 	LogDebug("%d devices found\n", numDevices);
 	if(numDevices == 0)
 	{
@@ -135,53 +157,37 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	//TODO: support setting this via command line arg
-	int ndevice = 0;
-
-	/*
-	DEVID id;
-	DEVVER rev;
-	FDwfEnumDeviceType(ndevice, &id, &rev);
-	LogDebug("Using first device found\n");
-	switch(id)
-	{
-		case 1:
-			LogDebug("Electronics Explorer rev %d\n", rev);
-			break;
-		case 2:
-			LogDebug("Analog Discovery (original) %d\n", rev);
-			break;
-		case 3:
-			LogDebug("Analog Discovery 2 %d\n", rev);
-			break;
-		case 4:
-			LogDebug("Digital Discovery %d\n", rev);
-			break;
-		//not sure what 5 is
-		case 6:
-			LogDebug("Analog Discovery Pro rev %d\n", rev);	//ADP3450, might be others too?
-			break;
-
-		default:
-			LogDebug("Device ID %d rev %d\n", id, rev);
-			break;
-	}
-	*/
-
+	//Print out list of all devices found
 	char username[32];
 	char devname[32];
 	char serial[32];
-	FDwfEnumUserName(ndevice, username);
-	FDwfEnumDeviceName(ndevice, devname);
-	FDwfEnumSN(ndevice, serial);
-	LogDebug("Device is a %s (user name %s), serial %s\n", devname, username, serial);
+	for(int i=0; i<numDevices; i++)
+	{
+		LogIndenter li;
+
+		FDwfEnumUserName(i, username);
+		FDwfEnumDeviceName(i, devname);
+		FDwfEnumSN(i, serial);
+		LogVerbose("[%d] %s (user name %s), serial %s\n", i, devname, username, serial);
+	}
+
+	//Print out the selected device
+	FDwfEnumUserName(device, username);
+	FDwfEnumDeviceName(device, devname);
+	FDwfEnumSN(device, serial);
+	LogVerbose("Using device %d: %s (user name %s), serial %s\n", device, devname, username, serial);
 	g_model = devname;
 	g_serial = serial;
 	g_fwver = "FIXME";
 
 	//Enum configurations and decide which one to use
 	int configsFound;
-	FDwfEnumConfig(ndevice, &configsFound);
+	LogVerbose("Checking possible device configurations...\n");
+	if(!FDwfEnumConfig(device, &configsFound))
+	{
+		LogError("FDwfEnumConfig failed\n");
+		return 1;
+	}
 	LogDebug("%d configs found\n", configsFound);
 	{
 		LogIndenter li;
@@ -229,9 +235,8 @@ int main(int argc, char* argv[])
 	}
 
 	//For now, hard code config 1 on to get best scope performance on the ADP3450
-	int nconfig = 1;
-	LogDebug("Opening device %d in config %d\n", ndevice, nconfig);
-	if(!FDwfDeviceConfigOpen(ndevice, nconfig, &g_hScope))
+	LogDebug("Opening device %d in config %d\n", device, config);
+	if(!FDwfDeviceConfigOpen(device, config, &g_hScope))
 	{
 		LogError("Failed to open device\n");
 		return 1;

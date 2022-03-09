@@ -146,7 +146,11 @@ void ScpiServerThread()
 			LogWarning("Failed to disable Nagle on socket, performance may be poor\n");
 
 		//Reset the device to default configuration
-		FDwfAnalogInReset(g_hScope);
+		if(!FDwfAnalogInReset(g_hScope))
+		{
+			LogError("FDwfAnalogInReset failed\n");
+			exit(1);
+		}
 
 		thread dataThread(WaveformServerThread);
 
@@ -198,7 +202,8 @@ void ScpiServerThread()
 				{
 					double minFreq;
 					double maxFreq;
-					FDwfAnalogInFrequencyInfo(g_hScope, &minFreq, &maxFreq);
+					if(!FDwfAnalogInFrequencyInfo(g_hScope, &minFreq, &maxFreq))
+						LogError("FDwfAnalogInFrequencyInfo failed\n");
 
 					//Cap min freq to 1 kHz
 					minFreq = max(minFreq, 1000.0);
@@ -228,8 +233,14 @@ void ScpiServerThread()
 				//Get memory depths
 				else if(cmd == "DEPTHS")
 				{
-					string ret = "";
-					ret = "65536,";			//for now, only 64K supported
+					int bufsizeMin;
+					int bufsizeMax;
+					if(!FDwfAnalogInBufferSizeInfo(g_hScope, &bufsizeMin, &bufsizeMax))
+						LogError("FDwfAnalogInBufferSizeInfo failed\n");
+
+					//for now, only report max memory depth
+					string ret = to_string(bufsizeMax) + ",";
+
 					ScpiSend(client, ret);
 				}
 

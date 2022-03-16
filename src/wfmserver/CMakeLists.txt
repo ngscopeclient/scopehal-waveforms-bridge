@@ -12,5 +12,6 @@ target_link_libraries(wfmserver
 	xptools
 	log
 	dwf
+	scpi-server-tools
 	)
 

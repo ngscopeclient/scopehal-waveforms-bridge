@@ -41,6 +41,7 @@
 #include "wfmserver.h"
 #include <string.h>
 #include <math.h>
+#include "../../lib/scpi-server-tools/SCPIServer.h"
 
 //These functions are not yet in the Digilent API headers (will be in the next release)
 //Prototypes from email conversation with Attila at Digilent
@@ -53,10 +54,6 @@ DWFAPI int FDwfAnalogInChannelCouplingSet(HDWF hdwf, int idxChannel, DwfAnalogCo
 DWFAPI int FDwfAnalogInChannelCouplingGet(HDWF hdwf, int idxChannel, DwfAnalogCoupling *pcoupling);
 
 using namespace std;
-
-bool ScpiSend(Socket& sock, const string& cmd);
-bool ScpiRecv(Socket& sock, string& str);
-void ParseScpiLine(const string& line, string& subject, string& cmd, bool& query, vector<string>& args);
 
 //Channel state
 map<size_t, bool> g_channelOn;
@@ -94,38 +91,6 @@ bool g_lastTriggerWasForced = false;
 std::mutex g_mutex;
 
 /**
-	@brief Sends a SCPI reply (terminated by newline)
- */
-bool ScpiSend(Socket& sock, const string& cmd)
-{
-	string tempbuf = cmd + "\n";
-	return sock.SendLooped((unsigned char*)tempbuf.c_str(), tempbuf.length());
-}
-
-/**
-	@brief Reads a SCPI command (terminated by newline or semicolon)
- */
-bool ScpiRecv(Socket& sock, string& str)
-{
-	int sockid = sock;
-
-	char tmp = ' ';
-	str = "";
-	while(true)
-	{
-		if(1 != recv(sockid, &tmp, 1, MSG_WAITALL))
-			return false;
-
-		if( (tmp == '\n') || ( (tmp == ';') ) )
-			break;
-		else
-			str += tmp;
-	}
-
-	return true;
-}
-
-/**
 	@brief Main socket server
  */
 void ScpiServerThread()
@@ -136,14 +101,12 @@ void ScpiServerThread()
 
 	while(true)
 	{
-		Socket client = g_scpiSocket.Accept();
-		Socket dataClient(-1);
-		LogVerbose("Client connected to control plane socket\n");
-
-		if(!client.IsValid())
+		Socket scpiClient = g_scpiSocket.Accept();
+		if(!scpiClient.IsValid())
 			break;
-		if(!client.DisableNagle())
-			LogWarning("Failed to disable Nagle on socket, performance may be poor\n");
+
+		//Create a server object for this connection
+		SCPIServer server(scpiClient.Detach());
 
 		//Reset the device to default configuration
 		if(!FDwfAnalogInReset(g_hScope))
@@ -162,10 +125,10 @@ void ScpiServerThread()
 		vector<string> args;
 		while(true)
 		{
-			if(!ScpiRecv(client, line))
+			if(!server.RecvCommand(line))
 				break;
-			ParseScpiLine(line, subject, cmd, query, args);
 			LogTrace((line + "\n").c_str());
+			server.ParseLine(line, subject, cmd, query, args);
 
 			//Extract channel ID from subject and clamp bounds
 			size_t channelId = 0;
@@ -191,11 +154,11 @@ void ScpiServerThread()
 
 				//Read ID code
 				if(cmd == "*IDN")
-					ScpiSend(client, string("Digilent,") + g_model + "," + g_serial + "," + g_fwver);
+					server.SendReply(string("Digilent,") + g_model + "," + g_serial + "," + g_fwver);
 
 				//Get number of channels
 				else if(cmd == "CHANS")
-					ScpiSend(client, to_string(g_numAnalogInChannels));
+					server.SendReply(to_string(g_numAnalogInChannels));
 
 				//Get legal sample rates for the current configuration
 				else if(cmd == "RATES")
@@ -227,7 +190,7 @@ void ScpiServerThread()
 						ret += to_string(interval3) + ",";
 					}
 
-					ScpiSend(client, ret);
+					server.SendReply(ret);
 				}
 
 				//Get memory depths
@@ -241,7 +204,7 @@ void ScpiServerThread()
 					//for now, only report max memory depth
 					string ret = to_string(bufsizeMax) + ",";
 
-					ScpiSend(client, ret);
+					server.SendReply(ret);
 				}
 
 				else
@@ -542,69 +505,6 @@ void ScpiServerThread()
 		g_waveformThreadQuit = true;
 		dataThread.join();
 		g_waveformThreadQuit = false;
-	}
-}
-
-/**
-	@brief Parses an incoming SCPI command
- */
-void ParseScpiLine(const string& line, string& subject, string& cmd, bool& query, vector<string>& args)
-{
-	//Reset fields
-	query = false;
-	subject = "";
-	cmd = "";
-	args.clear();
-
-	string tmp;
-	bool reading_cmd = true;
-	for(size_t i=0; i<line.length(); i++)
-	{
-		//If there's no colon in the command, the first block is the command.
-		//If there is one, the first block is the subject and the second is the command.
-		//If more than one, treat it as freeform text in the command.
-		if( (line[i] == ':') && subject.empty() )
-		{
-			subject = tmp;
-			tmp = "";
-			continue;
-		}
-
-		//Detect queries
-		if(line[i] == '?')
-		{
-			query = true;
-			continue;
-		}
-
-		//Comma delimits arguments, space delimits command-to-args
-		if(!(isspace(line[i]) && cmd.empty()) && line[i] != ',')
-		{
-			tmp += line[i];
-			continue;
-		}
-
-		//merge multiple delimiters into one delimiter
-		if(tmp == "")
-			continue;
-
-		//Save command or argument
-		if(reading_cmd)
-			cmd = tmp;
-		else
-			args.push_back(tmp);
-
-		reading_cmd = false;
-		tmp = "";
-	}
-
-	//Stuff left over at the end? Figure out which field it belongs in
-	if(tmp != "")
-	{
-		if(cmd != "")
-			args.push_back(tmp);
-		else
-			cmd = tmp;
 	}
 }
 

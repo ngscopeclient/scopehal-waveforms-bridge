@@ -27,65 +27,38 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef wfmserver_h
-#define wfmserver_h
+#ifndef DigilentSCPIServer_h
+#define DigilentSCPIServer_h
 
-#include "../../lib/log/log.h"
-#include "../../lib/xptools/Socket.h"
+#include "../../lib/scpi-server-tools/SCPIServer.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#include <shlwapi.h>
-#endif
+/**
+	@brief SCPI server for managing control plane traffic to a single client
+ */
+class DigilentSCPIServer : public SCPIServer
+{
+public:
+	DigilentSCPIServer(ZSOCKET sock);
+	virtual ~DigilentSCPIServer();
 
-#include <thread>
-#include <map>
-#include <mutex>
+	static void Start(bool force = false);
 
-#include <digilent/waveforms/dwf.h>
+protected:
+	virtual void OnCommand(
+		const std::string& line,
+		const std::string& subject,
+		const std::string& cmd,
+		const std::vector<std::string>& args);
 
-extern Socket g_scpiSocket;
-extern Socket g_dataSocket;
+	virtual void OnQuery(
+		const std::string& line,
+		const std::string& subject,
+		const std::string& cmd,
+		const std::vector<std::string>& args);
 
-void ScpiServerThread();
-void WaveformServerThread();
+	virtual size_t GetChannelID(const std::string& subject);
 
-extern HDWF g_hScope;
-
-extern std::string g_model;
-extern std::string g_serial;
-extern std::string g_fwver;
-
-extern size_t g_numAnalogInChannels;
-extern volatile bool g_waveformThreadQuit;
-
-extern size_t g_captureMemDepth;
-extern size_t g_memDepth;
-extern std::map<size_t, bool> g_channelOnDuringArm;
-extern std::map<size_t, bool> g_channelOn;
-
-/*
-extern bool g_msoPodEnabled[2];
-extern bool g_msoPodEnabledDuringArm[2];
-extern int16_t g_msoPodThreshold[2][8];
-extern PICO_DIGITAL_PORT_HYSTERESIS g_msoHysteresis[2];
-
-*/
-extern int64_t g_sampleInterval;
-extern int64_t g_sampleIntervalDuringArm;
-
-extern int64_t g_triggerDelay;
-extern size_t g_triggerSampleIndex;
-extern size_t g_triggerChannel;
-extern double g_triggerDeltaSec;
-extern double g_triggerVoltage;
-extern bool g_triggerArmed;
-extern bool g_triggerOneShot;
-extern bool g_memDepthChanged;
-
-extern std::mutex g_mutex;
-
-#define FS_PER_SECOND 1e15
-#define SECONDS_PER_FS 1e-15
+	void Stop();
+};
 
 #endif

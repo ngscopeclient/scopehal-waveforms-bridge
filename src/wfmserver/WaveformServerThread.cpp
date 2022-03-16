@@ -34,6 +34,7 @@
  */
 #include "wfmserver.h"
 #include <string.h>
+#include "DigilentSCPIServer.h"
 
 using namespace std;
 
@@ -190,7 +191,7 @@ void WaveformServerThread()
 		else
 		{
 			lock_guard<mutex> lock(g_mutex);
-			Start();
+			DigilentSCPIServer::Start();
 		}
 	}
 

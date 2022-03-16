@@ -35,6 +35,7 @@
 
 #include "wfmserver.h"
 #include <signal.h>
+#include "DigilentSCPIServer.h"
 
 using namespace std;
 
@@ -257,7 +258,26 @@ int main(int argc, char* argv[])
 	//Launch the control plane socket server
 	g_scpiSocket.Bind(scpi_port);
 	g_scpiSocket.Listen();
-	ScpiServerThread();
+
+	while(true)
+	{
+		Socket scpiClient = g_scpiSocket.Accept();
+		if(!scpiClient.IsValid())
+			break;
+
+		//Create a server object for this connection
+		DigilentSCPIServer server(scpiClient.Detach());
+
+		//Launch the data-plane thread
+		thread dataThread(WaveformServerThread);
+
+		//Process connections on the socket
+		server.MainLoop();
+
+		g_waveformThreadQuit = true;
+		dataThread.join();
+		g_waveformThreadQuit = false;
+	}
 
 	//Done, clean up
 	FDwfDeviceClose(g_hScope);

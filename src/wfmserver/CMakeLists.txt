@@ -1,7 +1,7 @@
 ###############################################################################
 #C++ compilation
 add_executable(wfmserver
-	ScpiServerThread.cpp
+	DigilentSCPIServer.cpp
 	WaveformServerThread.cpp
 	main.cpp
 )

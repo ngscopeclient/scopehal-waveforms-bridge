@@ -30,12 +30,12 @@
 #ifndef DigilentSCPIServer_h
 #define DigilentSCPIServer_h
 
-#include "../../lib/scpi-server-tools/SCPIServer.h"
+#include "../../lib/scpi-server-tools/BridgeSCPIServer.h"
 
 /**
 	@brief SCPI server for managing control plane traffic to a single client
  */
-class DigilentSCPIServer : public SCPIServer
+class DigilentSCPIServer : public BridgeSCPIServer
 {
 public:
 	DigilentSCPIServer(ZSOCKET sock);
@@ -44,17 +44,24 @@ public:
 	static void Start(bool force = false);
 
 protected:
+	virtual std::string GetMake();
+	virtual std::string GetModel();
+	virtual std::string GetSerial();
+	virtual std::string GetFirmwareVersion();
+	virtual size_t GetAnalogChannelCount();
+	virtual std::vector<size_t> GetSampleRates();
+	virtual std::vector<size_t> GetSampleDepths();
+
 	virtual void OnCommand(
 		const std::string& line,
 		const std::string& subject,
 		const std::string& cmd,
 		const std::vector<std::string>& args);
 
-	virtual void OnQuery(
+	virtual bool OnQuery(
 		const std::string& line,
 		const std::string& subject,
-		const std::string& cmd,
-		const std::vector<std::string>& args);
+		const std::string& cmd);
 
 	virtual size_t GetChannelID(const std::string& subject);
 

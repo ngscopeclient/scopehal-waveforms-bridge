@@ -81,7 +81,7 @@ std::mutex g_mutex;
 // Construction / destruction
 
 DigilentSCPIServer::DigilentSCPIServer(ZSOCKET sock)
-	: SCPIServer(sock)
+	: BridgeSCPIServer(sock)
 {
 	//Reset the device to default configuration
 	if(!FDwfAnalogInReset(g_hScope))
@@ -125,71 +125,82 @@ size_t DigilentSCPIServer::GetChannelID(const string& subject)
 	return channelId;
 }
 
-void DigilentSCPIServer::OnQuery(
+bool DigilentSCPIServer::OnQuery(
 		const string& line,
 		const string& subject,
-		const string& cmd,
-		const vector<string>& args)
+		const string& cmd)
 {
-	size_t channelId = GetChannelID(subject);
+	if(BridgeSCPIServer::OnQuery(line, subject, cmd))
+		return true;
 
-	//Read ID code
-	if(cmd == "*IDN")
-		SendReply(string("Digilent,") + g_model + "," + g_serial + "," + g_fwver);
+	//TODO: handle commands not implemented by the base class
+	LogWarning("Unrecognized query received: %s\n", line.c_str());
 
-	//Get number of channels
-	else if(cmd == "CHANS")
-		SendReply(to_string(g_numAnalogInChannels));
+	return false;
+}
 
-	//Get legal sample rates for the current configuration
-	else if(cmd == "RATES")
+string DigilentSCPIServer::GetMake()
+{
+	return "Digilent";
+}
+
+string DigilentSCPIServer::GetModel()
+{
+	return g_model;
+}
+
+string DigilentSCPIServer::GetSerial()
+{
+	return g_serial;
+}
+
+string DigilentSCPIServer::GetFirmwareVersion()
+{
+	return g_fwver;
+}
+
+size_t DigilentSCPIServer::GetAnalogChannelCount()
+{
+	return g_numAnalogInChannels;
+}
+
+vector<size_t> DigilentSCPIServer::GetSampleRates()
+{
+	vector<size_t> rates;
+
+	double minFreq;
+	double maxFreq;
+	if(!FDwfAnalogInFrequencyInfo(g_hScope, &minFreq, &maxFreq))
+		LogError("FDwfAnalogInFrequencyInfo failed\n");
+
+	//Cap min freq to 1 kHz
+	minFreq = max(minFreq, 1000.0);
+
+	//Report sample rates in 1-2-5 steps
+	double freq = maxFreq;
+	while(freq >= minFreq)
 	{
-		double minFreq;
-		double maxFreq;
-		if(!FDwfAnalogInFrequencyInfo(g_hScope, &minFreq, &maxFreq))
-			LogError("FDwfAnalogInFrequencyInfo failed\n");
+		rates.push_back(freq);
+		rates.push_back(freq/2);
+		rates.push_back(freq/5);
 
-		//Cap min freq to 1 kHz
-		minFreq = max(minFreq, 1000.0);
-
-		//Report sample rates in 1-2-5 steps
-		string ret = "";
-		double freq = maxFreq;
-		while(freq >= minFreq)
-		{
-			double f1 = freq;
-			double f2 = freq / 2;
-			double f3 = freq / 5;
-			freq /= 10;
-
-			double interval1 = FS_PER_SECOND / f1;
-			double interval2 = FS_PER_SECOND / f2;
-			double interval3 = FS_PER_SECOND / f3;
-
-			ret += to_string(interval1) + ",";
-			ret += to_string(interval2) + ",";
-			ret += to_string(interval3) + ",";
-		}
-
-		SendReply(ret);
+		freq /= 10;
 	}
 
-	//Get memory depths
-	else if(cmd == "DEPTHS")
-	{
-		int bufsizeMin;
-		int bufsizeMax;
-		if(!FDwfAnalogInBufferSizeInfo(g_hScope, &bufsizeMin, &bufsizeMax))
-			LogError("FDwfAnalogInBufferSizeInfo failed\n");
+	return rates;
+}
 
-		//for now, only report max memory depth
-		string ret = to_string(bufsizeMax) + ",";
+vector<size_t> DigilentSCPIServer::GetSampleDepths()
+{
+	int bufsizeMin;
+	int bufsizeMax;
+	if(!FDwfAnalogInBufferSizeInfo(g_hScope, &bufsizeMin, &bufsizeMax))
+		LogError("FDwfAnalogInBufferSizeInfo failed\n");
 
-		SendReply(ret);
-	}
-
-	else
-		LogDebug("Unrecognized query received: %s\n", line.c_str());
+	//for now only report max depth
+	vector<size_t> depths;
+	depths.push_back(bufsizeMax);
+	return depths;
 }
 
 void DigilentSCPIServer::OnCommand(

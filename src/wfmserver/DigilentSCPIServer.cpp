@@ -101,17 +101,12 @@ DigilentSCPIServer::~DigilentSCPIServer()
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Command parsing
 
-size_t DigilentSCPIServer::GetChannelID(const string& subject)
+bool DigilentSCPIServer::GetChannelID(const string& subject, size_t& id_out)
 {
 	//Extract channel ID from subject and clamp bounds
-	size_t channelId = 0;
-	//size_t laneId = 0;
-	//bool channelIsDigital = false;
 	if(toupper(subject[0]) == 'C')
-	{
-		channelId = min(static_cast<size_t>(stoi(subject.c_str() + 1) - 1), g_numAnalogInChannels);
-		//channelIsDigital = false;
-	}
+		id_out = min(static_cast<size_t>(stoi(subject.c_str() + 1) - 1), g_numAnalogInChannels);
+
 	/*
 	else if(isdigit(subject[0]))
 	{
@@ -122,7 +117,18 @@ size_t DigilentSCPIServer::GetChannelID(const string& subject)
 	}
 	*/
 
-	return channelId;
+	else
+		return false;
+
+	return true;
+}
+
+BridgeSCPIServer::ChannelType DigilentSCPIServer::GetChannelType(size_t channel)
+{
+	if(channel < g_numAnalogInChannels)
+		return CH_ANALOG;
+	else
+		return CH_DIGITAL;
 }
 
 bool DigilentSCPIServer::OnQuery(
@@ -203,73 +209,23 @@ vector<size_t> DigilentSCPIServer::GetSampleDepths()
 	return depths;
 }
 
-void DigilentSCPIServer::OnCommand(
+bool DigilentSCPIServer::OnCommand(
 		const string& line,
 		const string& subject,
 		const string& cmd,
 		const vector<string>& args)
 {
-	size_t channelId = GetChannelID(subject);
 
-	if(cmd == "ON")
-	{
-		lock_guard<mutex> lock(g_mutex);
-		g_channelOn[channelId] = true;
-
-		if(!FDwfAnalogInChannelEnableSet(g_hScope, channelId, true))
-			LogError("FDwfAnalogInChannelEnableSet failed\n");
-
-		//We need to allocate new buffers for this channel
-		g_memDepthChanged = true;
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
-	else if(cmd == "OFF")
-	{
-		lock_guard<mutex> lock(g_mutex);
-		g_channelOn[channelId] = true;
-
-		if(!FDwfAnalogInChannelEnableSet(g_hScope, channelId, false))
-			LogError("FDwfAnalogInChannelEnableSet failed\n");
-
-		//We need to allocate new buffers for this channel
-		g_memDepthChanged = true;
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
-	else if( (cmd == "COUP") && (args.size() == 1) )
-	{
-		lock_guard<mutex> lock(g_mutex);
-		DwfAnalogCoupling coup;
-		if(args[0] == "DC1M")
-			coup = DwfAnalogCouplingDC;
-		else// if(args[0] == "AC1M")
-			coup = DwfAnalogCouplingAC;
-
-		if(!FDwfAnalogInChannelCouplingSet(g_hScope, channelId, coup))
-			LogError("FDwfAnalogInChannelCouplingSet failed\n");
-	}
-
-	else if( (cmd == "OFFS") && (args.size() == 1) )
-	{
-		lock_guard<mutex> lock(g_mutex);
-
-		double requestedOffset = stod(args[0]);
-		if(!FDwfAnalogInChannelOffsetSet(g_hScope, channelId, requestedOffset))
-			LogError("FDwfAnalogInChannelOffsetSet failed\n");
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
+	if(BridgeSCPIServer::OnCommand(line, subject, cmd, args))
+		return true;
 
 	else if( (cmd == "ATTEN") && (args.size() == 1) )
 	{
 		lock_guard<mutex> lock(g_mutex);
+
+		size_t channelId;
+		if(!GetChannelID(subject, channelId))
+			return false;
 
 		double requestedAtten = stod(args[0]);
 		if(!FDwfAnalogInChannelAttenuationSet(g_hScope, channelId, requestedAtten))
@@ -280,208 +236,6 @@ void DigilentSCPIServer::OnCommand(
 			Start();
 	}
 
-	else if( (cmd == "RANGE") && (args.size() == 1) )
-	{
-		lock_guard<mutex> lock(g_mutex);
-		auto range = stod(args[0]);
-
-		if(!FDwfAnalogInChannelRangeSet(g_hScope, channelId, range))
-			LogError("FDwfAnalogInChannelRangeSet failed\n");
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
-
-	else if( (cmd == "RATE") && (args.size() == 1) )
-	{
-		lock_guard<mutex> lock(g_mutex);
-
-		int64_t rate = stoull(args[0]);
-		if(!FDwfAnalogInFrequencySet(g_hScope, rate))
-			LogError("FDwfAnalogInFrequencySet failed\n");
-		g_sampleInterval = FS_PER_SECOND / rate;
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
-
-	else if( (cmd == "DEPTH") && (args.size() == 1) )
-	{
-		lock_guard<mutex> lock(g_mutex);
-		g_memDepth = stoull(args[0]);
-		if(!FDwfAnalogInBufferSizeSet(g_hScope, g_memDepth))
-			LogError("FDwfAnalogInBufferSizeSet failed\n");
-
-		g_memDepthChanged = true;
-
-		//need to re-arm trigger to apply changes
-		if(g_triggerArmed)
-			Start();
-	}
-
-	else if( (cmd == "START") || (cmd == "SINGLE") )
-	{
-		lock_guard<mutex> lock(g_mutex);
-
-		if(g_triggerArmed)
-		{
-			LogVerbose("Ignoring START command because trigger is already armed\n");
-			return;
-		}
-
-		//Make sure we've got something to capture
-		bool anyChannels = false;
-		for(size_t i=0; i<g_numAnalogInChannels; i++)
-		{
-			if(g_channelOn[i])
-			{
-				anyChannels = true;
-				break;
-			}
-		}
-		/*
-		for(size_t i=0; i<g_numDigitalPods; i++)
-		{
-			if(g_msoPodEnabled[i])
-			{
-				anyChannels = true;
-				break;
-			}
-		}
-		*/
-
-		if(!anyChannels)
-		{
-			LogVerbose("Ignoring START command because no channels are active\n");
-			return;
-		}
-
-		//Start the capture
-		Start();
-		g_triggerOneShot = (cmd == "SINGLE");
-	}
-
-	else if(cmd == "FORCE")
-	{
-		lock_guard<mutex> lock(g_mutex);
-		Start(true);
-	}
-
-	else if(cmd == "STOP")
-	{
-		lock_guard<mutex> lock(g_mutex);
-
-		Stop();
-	}
-
-	else if(subject == "TRIG")
-	{
-		if( (cmd == "MODE") && (args.size() == 1) )
-		{
-			if(args[0] == "EDGE")
-			{
-				if(!FDwfAnalogInTriggerTypeSet(g_hScope, trigtypeEdge))
-					LogError("FDwfAnalogInTriggerTypeSet failed\n");
-			}
-
-			else
-				LogWarning("Unknown trigger mode %s\n", args[0].c_str());
-		}
-
-		else if( (cmd == "EDGE:DIR") && (args.size() == 1) )
-		{
-			lock_guard<mutex> lock(g_mutex);
-
-			DwfTriggerSlope condition;
-			if(args[0] == "RISING")
-				condition = DwfTriggerSlopeRise;
-			else if(args[0] == "FALLING")
-				condition = DwfTriggerSlopeFall;
-			else// if(args[0] == "ANY")
-				condition = DwfTriggerSlopeEither;
-
-			if(!FDwfAnalogInTriggerConditionSet(g_hScope, condition))
-				LogError("FDwfAnalogInTriggerConditionSet failed\n");
-
-			//need to re-arm trigger to apply changes
-			if(g_triggerArmed)
-				Start();
-		}
-
-		else if( (cmd == "LEV") && (args.size() == 1) )
-		{
-			lock_guard<mutex> lock(g_mutex);
-
-			g_triggerVoltage = stod(args[0]);
-
-			if(!FDwfAnalogInTriggerLevelSet(g_hScope, g_triggerVoltage))
-				LogError("FDwfAnalogInTriggerLevelSet failed\n");
-
-			//need to re-arm trigger to apply changes
-			if(g_triggerArmed)
-				Start();
-		}
-
-		else if( (cmd == "SOU") && (args.size() == 1) )
-		{
-			lock_guard<mutex> lock(g_mutex);
-
-			if(!FDwfAnalogInTriggerSourceSet(g_hScope, trigsrcDetectorAnalogIn))
-				LogError("FDwfAnalogInTriggerSourceSet failed\n");
-
-			if(!FDwfAnalogInTriggerAutoTimeoutSet(g_hScope, 0))
-				LogError("FDwfAnalogInTriggerAutoTimeoutSet failed\n");
-
-			g_triggerChannel = args[0][1] - '1';
-			if(!FDwfAnalogInTriggerChannelSet(g_hScope, g_triggerChannel))
-				LogError("FDwfAnalogInTriggerChannelSet failed\n");
-
-			//need to re-arm trigger to apply changes
-			if(g_triggerArmed)
-				Start();
-		}
-
-		else if( (cmd == "DELAY") && (args.size() == 1) )
-		{
-			lock_guard<mutex> lock(g_mutex);
-			g_triggerDelay = stoull(args[0]);
-
-			//For single trigger mode, trigger position is WRT midpoint of buffer
-			//but the TRIG:DELAY command measures WRT start of buffer.
-			int64_t offset_samples = g_memDepth/2;
-			int64_t offset_fs = offset_samples * g_sampleInterval;
-			int64_t position_fs = offset_fs - g_triggerDelay;
-
-			//After setting trigger time, see what we actually got.
-			//Hardware may round it.
-			double position_sec_requested = position_fs * SECONDS_PER_FS;
-			if(!FDwfAnalogInTriggerPositionSet(g_hScope, position_sec_requested))
-				LogError("FDwfAnalogInTriggerPositionSet failed\n");
-			double position_sec_actual;
-			if(!FDwfAnalogInTriggerPositionGet(g_hScope, &position_sec_actual))
-				LogError("FDwfAnalogInTriggerPositionGet failed\n");
-
-			g_triggerDeltaSec = position_sec_actual - position_sec_requested;
-
-			//need to re-arm trigger to apply changes
-			if(g_triggerArmed)
-				Start();
-		}
-
-		else
-		{
-			LogDebug("Unrecognized trigger command received: %s\n", line.c_str());
-			LogIndenter li;
-			LogDebug("Command: %s\n", cmd.c_str());
-			for(auto arg : args)
-				LogDebug("Arg: %s\n", arg.c_str());
-		}
-	}
-
-	//TODO: bandwidth limiter
-
 	//Unknown
 	else
 	{
@@ -491,7 +245,223 @@ void DigilentSCPIServer::OnCommand(
 		LogDebug("Command: %s\n", cmd.c_str());
 		for(auto arg : args)
 			LogDebug("Arg: %s\n", arg.c_str());
+
+		return false;
 	}
+
+	return true;
+}
+
+void DigilentSCPIServer::AcquisitionStart(bool oneShot)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	if(g_triggerArmed)
+	{
+		LogVerbose("Ignoring START command because trigger is already armed\n");
+		return;
+	}
+
+	//Make sure we've got something to capture
+	bool anyChannels = false;
+	for(size_t i=0; i<g_numAnalogInChannels; i++)
+	{
+		if(g_channelOn[i])
+		{
+			anyChannels = true;
+			break;
+		}
+	}
+
+	//for(size_t i=0; i<g_numDigitalPods; i++)
+	//{
+	//	if(g_msoPodEnabled[i])
+	//	{
+	//		anyChannels = true;
+	//		break;
+	//	}
+	//}
+
+	if(!anyChannels)
+	{
+		LogVerbose("Ignoring START command because no channels are active\n");
+		return;
+	}
+
+	//Start the capture
+	Start();
+	g_triggerOneShot = oneShot;
+}
+
+void DigilentSCPIServer::AcquisitionForceTrigger()
+{
+	lock_guard<mutex> lock(g_mutex);
+	Start(true);
+}
+
+void DigilentSCPIServer::AcquisitionStop()
+{
+	lock_guard<mutex> lock(g_mutex);
+	Stop();
+}
+
+void DigilentSCPIServer::SetChannelEnabled(size_t chIndex, bool enabled)
+{
+	lock_guard<mutex> lock(g_mutex);
+	g_channelOn[chIndex] = enabled;
+
+	if(!FDwfAnalogInChannelEnableSet(g_hScope, chIndex, enabled))
+		LogError("FDwfAnalogInChannelEnableSet failed\n");
+
+	//We need to allocate new buffers for this channel
+	g_memDepthChanged = true;
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetAnalogCoupling(size_t chIndex, const std::string& coupling)
+{
+	lock_guard<mutex> lock(g_mutex);
+	DwfAnalogCoupling coup;
+	if(coupling == "DC1M")
+		coup = DwfAnalogCouplingDC;
+	else// if(coupling == "AC1M")
+		coup = DwfAnalogCouplingAC;
+
+	if(!FDwfAnalogInChannelCouplingSet(g_hScope, chIndex, coup))
+		LogError("FDwfAnalogInChannelCouplingSet failed\n");
+}
+
+void DigilentSCPIServer::SetAnalogRange(size_t chIndex, double range_V)
+{
+	lock_guard<mutex> lock(g_mutex);
+	if(!FDwfAnalogInChannelRangeSet(g_hScope, chIndex, range_V))
+		LogError("FDwfAnalogInChannelRangeSet failed\n");
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetAnalogOffset(size_t chIndex, double offset_V)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	if(!FDwfAnalogInChannelOffsetSet(g_hScope, chIndex, offset_V))
+		LogError("FDwfAnalogInChannelOffsetSet failed\n");
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetDigitalThreshold(size_t /*chIndex*/, double /*threshold_V*/)
+{
+	//not yet supported
+}
+
+void DigilentSCPIServer::SetDigitalHysteresis(size_t /*chIndex*/, double /*hysteresis*/)
+{
+	//not yet supported
+}
+
+void DigilentSCPIServer::SetSampleRate(uint64_t rate_hz)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	if(!FDwfAnalogInFrequencySet(g_hScope, rate_hz))
+		LogError("FDwfAnalogInFrequencySet failed\n");
+	g_sampleInterval = FS_PER_SECOND / rate_hz;
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetSampleDepth(uint64_t depth)
+{
+	lock_guard<mutex> lock(g_mutex);
+	g_memDepth = depth;
+	if(!FDwfAnalogInBufferSizeSet(g_hScope, g_memDepth))
+		LogError("FDwfAnalogInBufferSizeSet failed\n");
+
+	g_memDepthChanged = true;
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetTriggerDelay(uint64_t delay_fs)
+{
+	lock_guard<mutex> lock(g_mutex);
+	g_triggerDelay = delay_fs;
+
+	//For single trigger mode, trigger position is WRT midpoint of buffer
+	//but the TRIG:DELAY command measures WRT start of buffer.
+	int64_t offset_samples = g_memDepth/2;
+	int64_t offset_fs = offset_samples * g_sampleInterval;
+	int64_t position_fs = offset_fs - g_triggerDelay;
+
+	//After setting trigger time, see what we actually got.
+	//Hardware may round it.
+	double position_sec_requested = position_fs * SECONDS_PER_FS;
+	if(!FDwfAnalogInTriggerPositionSet(g_hScope, position_sec_requested))
+		LogError("FDwfAnalogInTriggerPositionSet failed\n");
+	double position_sec_actual;
+	if(!FDwfAnalogInTriggerPositionGet(g_hScope, &position_sec_actual))
+		LogError("FDwfAnalogInTriggerPositionGet failed\n");
+
+	g_triggerDeltaSec = position_sec_actual - position_sec_requested;
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetTriggerSource(size_t chIndex)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	if(!FDwfAnalogInTriggerSourceSet(g_hScope, trigsrcDetectorAnalogIn))
+		LogError("FDwfAnalogInTriggerSourceSet failed\n");
+
+	if(!FDwfAnalogInTriggerAutoTimeoutSet(g_hScope, 0))
+		LogError("FDwfAnalogInTriggerAutoTimeoutSet failed\n");
+
+	g_triggerChannel = chIndex;
+	if(!FDwfAnalogInTriggerChannelSet(g_hScope, g_triggerChannel))
+		LogError("FDwfAnalogInTriggerChannelSet failed\n");
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetTriggerLevel(double level_V)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	g_triggerVoltage = level_V;
+	if(!FDwfAnalogInTriggerLevelSet(g_hScope, g_triggerVoltage))
+		LogError("FDwfAnalogInTriggerLevelSet failed\n");
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetTriggerTypeEdge()
+{
+	lock_guard<mutex> lock(g_mutex);
+	if(!FDwfAnalogInTriggerTypeSet(g_hScope, trigtypeEdge))
+		LogError("FDwfAnalogInTriggerTypeSet failed\n");
+
+	RestartTriggerIfArmed();
+}
+
+void DigilentSCPIServer::SetEdgeTriggerEdge(const std::string& edge)
+{
+	lock_guard<mutex> lock(g_mutex);
+
+	DwfTriggerSlope condition;
+	if(edge == "RISING")
+		condition = DwfTriggerSlopeRise;
+	else if(edge == "FALLING")
+		condition = DwfTriggerSlopeFall;
+	else// if(edge == "ANY")
+		condition = DwfTriggerSlopeEither;
+
+	if(!FDwfAnalogInTriggerConditionSet(g_hScope, condition))
+		LogError("FDwfAnalogInTriggerConditionSet failed\n");
+
+	RestartTriggerIfArmed();
 }
 
 void DigilentSCPIServer::Stop()

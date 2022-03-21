@@ -162,7 +162,7 @@ void WaveformServerThread()
 		for(size_t i=0; i<g_numAnalogInChannels; i++)
 		{
 			//Analog channels
-			//if((i < g_numAnalogInChannels) && (g_channelOnDuringArm[i]) )
+			if((i < g_numAnalogInChannels) && (g_channelOnDuringArm[i]) )
 			{
 				//Send channel ID, memory depth, and trigger phase
 				client.SendLooped((uint8_t*)&i, sizeof(i));

@@ -84,63 +84,72 @@ void WaveformServerThread()
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
 		}
 
-		lock_guard<mutex> lock(g_mutex);
-
-		//Set up buffers if needed
-		if(g_memDepthChanged || waveformBuffers.empty())
+		int64_t interval;
+		size_t depth;
+		map<size_t, bool> channelOn;
 		{
-			LogTrace("Reallocating buffers\n");
+			lock_guard<mutex> lock(g_mutex);
 
-			//Clear out old buffers
-			for(size_t i=0; i<g_numAnalogInChannels; i++)
+			interval = g_sampleIntervalDuringArm;
+			channelOn = g_channelOnDuringArm;
+			depth = g_captureMemDepth;
+
+			//Set up buffers if needed
+			if(g_memDepthChanged || waveformBuffers.empty())
 			{
-				if(waveformBuffers[i])
+				LogTrace("Reallocating buffers\n");
+
+				//Clear out old buffers
+				for(size_t i=0; i<g_numAnalogInChannels; i++)
 				{
-					delete[] waveformBuffers[i];
-					waveformBuffers[i] = NULL;
+					if(waveformBuffers[i])
+					{
+						delete[] waveformBuffers[i];
+						waveformBuffers[i] = NULL;
+					}
 				}
+
+				//Set up new ones
+				//TODO: Only allocate memory if the channel is actually enabled
+				for(size_t i=0; i<g_numAnalogInChannels; i++)
+				{
+					//Allocate memory if needed
+					waveformBuffers[i] = new double[g_captureMemDepth];
+					memset(waveformBuffers[i], 0x00, g_captureMemDepth * sizeof(double));
+				}
+
+				g_memDepthChanged = false;
+
 			}
 
-			//Set up new ones
-			//TODO: Only allocate memory if the channel is actually enabled
+			//Download the data from the scope
 			for(size_t i=0; i<g_numAnalogInChannels; i++)
 			{
-				//Allocate memory if needed
-				waveformBuffers[i] = new double[g_captureMemDepth];
-				memset(waveformBuffers[i], 0x00, g_captureMemDepth * sizeof(double));
+				//TODO: only if channel is enabled?
+
+				FDwfAnalogInStatusData(g_hScope, i, waveformBuffers[i], g_captureMemDepth);
 			}
 
-			g_memDepthChanged = false;
-
+			//Figure out how many channels are active in this capture
+			numchans = 0;
+			for(size_t i=0; i<g_numAnalogInChannels; i++)
+			{
+				if(g_channelOnDuringArm[i])
+					numchans ++;
+			}
+			/*
+			for(size_t i=0; i<g_numDigitalPods; i++)
+			{
+				if(g_msoPodEnabledDuringArm[i])
+					numchans ++;
+			}
+			*/
 		}
-
-		//Download the data from the scope
-		for(size_t i=0; i<g_numAnalogInChannels; i++)
-		{
-			//TODO: only if channel is enabled?
-
-			FDwfAnalogInStatusData(g_hScope, i, waveformBuffers[i], g_captureMemDepth);
-		}
-
-		//Figure out how many channels are active in this capture
-		numchans = 0;
-		for(size_t i=0; i<g_numAnalogInChannels; i++)
-		{
-			if(g_channelOnDuringArm[i])
-				numchans ++;
-		}
-		/*
-		for(size_t i=0; i<g_numDigitalPods; i++)
-		{
-			if(g_msoPodEnabledDuringArm[i])
-				numchans ++;
-		}
-		*/
 
 		//Send the channel count and sample rate to the client
 		if(!client.SendLooped((uint8_t*)&numchans, sizeof(numchans)))
 			break;
-		if(!client.SendLooped((uint8_t*)&g_sampleIntervalDuringArm, sizeof(g_sampleIntervalDuringArm)))
+		if(!client.SendLooped((uint8_t*)&g_sampleIntervalDuringArm, sizeof(interval)))
 			break;
 
 		//Interpolate trigger position if we're using an analog level trigger
@@ -150,17 +159,17 @@ void WaveformServerThread()
 		if(triggerIsAnalog)
 		{
 			//Interpolate zero crossing to get sub-sample precision
-			trigphase = -InterpolateTriggerTime(waveformBuffers[g_triggerChannel]) * g_sampleIntervalDuringArm;
+			trigphase = -InterpolateTriggerTime(waveformBuffers[g_triggerChannel]) * interval;
 
 			//Correct for set point error
-			trigphase += (g_sampleIntervalDuringArm  + g_triggerDeltaSec*FS_PER_SECOND);
+			trigphase += (interval  + g_triggerDeltaSec*FS_PER_SECOND);
 		}
 
 		//Send data for each channel to the client
 		for(size_t i=0; i<g_numAnalogInChannels; i++)
 		{
 			//Analog channels
-			if((i < g_numAnalogInChannels) && (g_channelOnDuringArm[i]) )
+			if((i < g_numAnalogInChannels) && (channelOn[i]) )
 			{
 				//Send channel ID, memory depth, and trigger phase
 				size_t header[2] = {i, g_captureMemDepth};
@@ -170,7 +179,7 @@ void WaveformServerThread()
 					break;
 
 				//Send the actual waveform data
-				if(!client.SendLooped((uint8_t*)waveformBuffers[i], g_captureMemDepth * sizeof(double)))
+				if(!client.SendLooped((uint8_t*)waveformBuffers[i], depth * sizeof(double)))
 					break;
 			}
 
@@ -186,11 +195,15 @@ void WaveformServerThread()
 			*/
 		}
 
-		//Re-arm the trigger if doing repeating triggers
-		if(g_triggerOneShot)
-			g_triggerArmed = false;
-		else
-			DigilentSCPIServer::Start();
+		{
+			lock_guard<mutex> lock(g_mutex);
+
+			//Re-arm the trigger if doing repeating triggers
+			if(g_triggerOneShot)
+				g_triggerArmed = false;
+			else
+				DigilentSCPIServer::Start();
+		}
 	}
 
 	//Clean up temporary buffers

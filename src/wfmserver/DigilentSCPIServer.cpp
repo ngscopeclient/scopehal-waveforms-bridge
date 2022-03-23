@@ -215,7 +215,6 @@ bool DigilentSCPIServer::OnCommand(
 		const string& cmd,
 		const vector<string>& args)
 {
-
 	if(BridgeSCPIServer::OnCommand(line, subject, cmd, args))
 		return true;
 

@@ -84,6 +84,7 @@ protected:
 	virtual void SetTriggerLevel(double level_V);
 	virtual void SetTriggerTypeEdge();
 	virtual void SetEdgeTriggerEdge(const std::string& edge);
+	virtual bool IsTriggerArmed();
 
 	void RestartTriggerIfArmed()
 	{

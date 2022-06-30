@@ -491,3 +491,8 @@ void DigilentSCPIServer::Start(bool force)
 
 	g_triggerArmed = true;
 }
+
+bool DigilentSCPIServer::IsTriggerArmed()
+{
+	return g_triggerArmed;
+}

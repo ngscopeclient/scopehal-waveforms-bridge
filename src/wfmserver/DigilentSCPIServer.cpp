@@ -467,6 +467,10 @@ void DigilentSCPIServer::Stop()
 {
 	FDwfAnalogInConfigure(g_hScope, true, false);
 	g_triggerArmed = false;
+
+	//Convert any in-progress trigger to one shot.
+	//This ensures that if a waveform is halfway through being downloaded, we won't re-arm the trigger after it finishes.
+	g_triggerOneShot = true;
 }
 
 void DigilentSCPIServer::Start(bool force)

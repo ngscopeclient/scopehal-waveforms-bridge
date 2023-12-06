@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * wfmserver                                                                                                            *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,6 +32,7 @@
 
 using namespace std;
 
+/*
 //These functions are not yet in the Digilent API headers (will be in the next release)
 //Prototypes from email conversation with Attila at Digilent
 //TODO: delete this once the next version of the SDK is released (and set that as the min version)
@@ -41,6 +42,7 @@ const DwfAnalogCoupling DwfAnalogCouplingAC = 1;
 DWFAPI int FDwfAnalogInChannelCouplingInfo(HDWF hdwf, int *pfscoupling); // use IsBitSet
 DWFAPI int FDwfAnalogInChannelCouplingSet(HDWF hdwf, int idxChannel, DwfAnalogCoupling coupling);
 DWFAPI int FDwfAnalogInChannelCouplingGet(HDWF hdwf, int idxChannel, DwfAnalogCoupling *pcoupling);
+*/
 
 //Channel state
 map<size_t, bool> g_channelOn;

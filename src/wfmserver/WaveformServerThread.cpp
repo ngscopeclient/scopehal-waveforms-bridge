@@ -161,6 +161,12 @@ void WaveformServerThread()
 			//Interpolate zero crossing to get sub-sample precision
 			trigphase = -InterpolateTriggerTime(waveformBuffers[g_triggerChannel]) * interval;
 
+			//Cap interpolation error
+			if(trigphase > 10*interval)
+				trigphase = 10*interval;
+			if(trigphase < -10*interval)
+				trigphase = -10*interval;
+
 			//Correct for set point error
 			trigphase += (interval  + g_triggerDeltaSec*FS_PER_SECOND);
 		}
@@ -172,7 +178,7 @@ void WaveformServerThread()
 			if((i < g_numAnalogInChannels) && (channelOn[i]) )
 			{
 				//Send channel ID, memory depth, and trigger phase
-				uint64_t header[2] = {i, g_captureMemDepth};
+				uint64_t header[2] = {i, depth};
 				if(!client.SendLooped((uint8_t*)&header, sizeof(header)))
 					break;
 				if(!client.SendLooped((uint8_t*)&trigphase, sizeof(trigphase)))

@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * wfmserver                                                                                                            *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -85,7 +85,7 @@ void WaveformServerThread()
 		}
 
 		int64_t interval;
-		size_t depth;
+		uint64_t depth;
 		map<size_t, bool> channelOn;
 		{
 			lock_guard<mutex> lock(g_mutex);
@@ -172,7 +172,7 @@ void WaveformServerThread()
 			if((i < g_numAnalogInChannels) && (channelOn[i]) )
 			{
 				//Send channel ID, memory depth, and trigger phase
-				size_t header[2] = {i, g_captureMemDepth};
+				uint64_t header[2] = {i, g_captureMemDepth};
 				if(!client.SendLooped((uint8_t*)&header, sizeof(header)))
 					break;
 				if(!client.SendLooped((uint8_t*)&trigphase, sizeof(trigphase)))

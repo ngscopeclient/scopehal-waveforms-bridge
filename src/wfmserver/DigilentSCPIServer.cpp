@@ -205,8 +205,22 @@ vector<size_t> DigilentSCPIServer::GetSampleDepths()
 	if(!FDwfAnalogInBufferSizeInfo(g_hScope, &bufsizeMin, &bufsizeMax))
 		LogError("FDwfAnalogInBufferSizeInfo failed\n");
 
-	//for now only report max depth
+	//report sizes in 1-2-5 steps from 10k to whatever the maximum is
 	vector<size_t> depths;
+	int depth = 10000;
+	while(true)
+	{
+		if(depth <= bufsizeMax)
+			depths.push_back(depth);
+		if(depth*2 <= bufsizeMax)
+			depths.push_back(depth*2);
+		if(depth*5 <= bufsizeMax)
+			depths.push_back(depth*5);
+		else
+			break;
+
+		depth *= 10;
+	}
 	depths.push_back(bufsizeMax);
 	return depths;
 }

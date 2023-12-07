@@ -44,14 +44,17 @@ void help();
 void help()
 {
 	fprintf(stderr,
-			"wfmserver [general options] [logger options]\n"
+			"wfmserver [general options] [USB or IP device options] [logger options]\n"
 			"\n"
 			"  [general options]:\n"
 			"    --help                        : this message...\n"
 			"    --scpi-port nnn               : specifies the SCPI control plane port (default 5025)\n"
 			"    --waveform-port nnn           : specifies the binary waveform data port (default 5026)\n"
+			"  [USB device options]:\n"
 			"    --device nnn                  : specifies the device to open if more than one is present\n"
 			"    --config nnn                  : specifies the configuration for the device to use\n"
+			"  [IP device options]:\n"
+			"    --host hostname_or_ip         : hostname or IP address of the embedded server\n"
 			"\n"
 			"  [logger options]:\n"
 			"    levels: ERROR, WARNING, NOTICE, VERBOSE, DEBUG\n"
@@ -86,6 +89,7 @@ int main(int argc, char* argv[])
 	//Parse command-line arguments
 	uint16_t scpi_port = 5025;
 	uint16_t waveform_port = 5026;
+	string host;
 	int device = 0;
 	int config = 0;
 	for(int i=1; i<argc; i++)
@@ -123,6 +127,11 @@ int main(int argc, char* argv[])
 			if(i+1 < argc)
 				config = atoi(argv[++i]);
 		}
+		else if(s == "--host")
+		{
+			if(i+1 < argc)
+				host = argv[++i];
+		}
 
 		else
 		{
@@ -143,104 +152,124 @@ int main(int argc, char* argv[])
 	}
 	LogDebug("Digilent API %s\n", version);
 
-	//Initial setup: enumerate devices
-	LogNotice("Looking for Digilent devices...\n");
-	int numDevices;
-	if(!FDwfEnum(enumfilterAll, &numDevices))
+	if(host.empty())
 	{
-		LogError("FDwfEnum failed\n");
-		return 1;
-	}
-	LogDebug("%d devices found\n", numDevices);
-	if(numDevices == 0)
-	{
-		LogNotice("No devices found, exiting\n");
-		return 0;
-	}
-
-	//Print out list of all devices found
-	char username[32];
-	char devname[32];
-	char serial[32];
-	for(int i=0; i<numDevices; i++)
-	{
-		LogIndenter li;
-
-		FDwfEnumUserName(i, username);
-		FDwfEnumDeviceName(i, devname);
-		FDwfEnumSN(i, serial);
-		LogVerbose("[%d] %s (user name %s), serial %s\n", i, devname, username, serial);
-	}
-
-	//Print out the selected device
-	FDwfEnumUserName(device, username);
-	FDwfEnumDeviceName(device, devname);
-	FDwfEnumSN(device, serial);
-	LogVerbose("Using device %d: %s (user name %s), serial %s\n", device, devname, username, serial);
-	g_model = devname;
-	g_serial = serial;
-	g_fwver = "FIXME";
-
-	//Enum configurations and decide which one to use
-	int configsFound;
-	LogVerbose("Checking possible device configurations...\n");
-	if(!FDwfEnumConfig(device, &configsFound))
-	{
-		LogError("FDwfEnumConfig failed\n");
-		return 1;
-	}
-	LogDebug("%d configs found\n", configsFound);
-	{
-		LogIndenter li;
-		for(int i=0; i<configsFound; i++)
+		//Initial setup: enumerate devices
+		LogNotice("Looking for Digilent devices...\n");
+		int numDevices;
+		if(!FDwfEnum(enumfilterAll, &numDevices))
 		{
-			LogDebug("Config %d:\n", i);
-			LogIndenter li2;
+			LogError("FDwfEnum failed\n");
+			return 1;
+		}
+		LogDebug("%d devices found\n", numDevices);
+		if(numDevices == 0)
+		{
+			LogNotice("No devices found, exiting\n");
+			return 0;
+		}
 
-			int analogInCount;
-			int analogIOCount;
-			int analogOutCount;
-			int digitalInCount;
-			int digitalOutCount;
-			int digitalIOCount;
+		//Print out list of all devices found
+		char username[32];
+		char devname[32];
+		char serial[32];
+		for(int i=0; i<numDevices; i++)
+		{
+			LogIndenter li;
 
-			int analogInBufferSize;
-			int analogOutBufferSize;
-			int digitalInBufferSize;
-			int digitalOutBufferSize;
+			FDwfEnumUserName(i, username);
+			FDwfEnumDeviceName(i, devname);
+			FDwfEnumSN(i, serial);
+			LogVerbose("[%d] %s (user name %s), serial %s\n", i, devname, username, serial);
+		}
 
-			FDwfEnumConfigInfo(i, DECIAnalogInChannelCount, &analogInCount);
-			FDwfEnumConfigInfo(i, DECIAnalogOutChannelCount, &analogOutCount);
-			FDwfEnumConfigInfo(i, DECIAnalogIOChannelCount, &analogIOCount);
-			FDwfEnumConfigInfo(i, DECIDigitalInChannelCount, &digitalInCount);
-			FDwfEnumConfigInfo(i, DECIDigitalOutChannelCount, &digitalOutCount);
-			FDwfEnumConfigInfo(i, DECIDigitalIOChannelCount, &digitalIOCount);
+		//Print out the selected device
+		FDwfEnumUserName(device, username);
+		FDwfEnumDeviceName(device, devname);
+		FDwfEnumSN(device, serial);
+		LogVerbose("Using device %d: %s (user name %s), serial %s\n", device, devname, username, serial);
+		g_model = devname;
+		g_serial = serial;
+		g_fwver = "FIXME";
 
-			FDwfEnumConfigInfo(i, DECIAnalogInBufferSize, &analogInBufferSize);
-			FDwfEnumConfigInfo(i, DECIAnalogOutBufferSize, &analogOutBufferSize);
-			FDwfEnumConfigInfo(i, DECIDigitalInBufferSize, &digitalInBufferSize);
-			FDwfEnumConfigInfo(i, DECIDigitalOutBufferSize, &digitalOutBufferSize);
+		//Enum configurations and decide which one to use
+		int configsFound;
+		LogVerbose("Checking possible device configurations...\n");
+		if(!FDwfEnumConfig(device, &configsFound))
+		{
+			LogError("FDwfEnumConfig failed\n");
+			return 1;
+		}
+		LogDebug("%d configs found\n", configsFound);
+		{
+			LogIndenter li;
+			for(int i=0; i<configsFound; i++)
+			{
+				LogDebug("Config %d:\n", i);
+				LogIndenter li2;
 
-			LogDebug("Analog in:   %d\n", analogInCount);
-			LogDebug("Analog out:  %d\n", analogOutCount);
-			LogDebug("Analog IO:   %d\n", analogIOCount);
-			LogDebug("Digital in:  %d\n", digitalInCount);
-			LogDebug("Digital out: %d\n", digitalOutCount);
-			LogDebug("Digital IO:  %d\n", digitalIOCount);
+				int analogInCount;
+				int analogIOCount;
+				int analogOutCount;
+				int digitalInCount;
+				int digitalOutCount;
+				int digitalIOCount;
 
-			g_numAnalogInChannels = analogInCount;
+				int analogInBufferSize;
+				int analogOutBufferSize;
+				int digitalInBufferSize;
+				int digitalOutBufferSize;
 
-			LogDebug("Analog buffer: %d in, %d out\n", analogInBufferSize, analogOutBufferSize);
-			LogDebug("Digital buffer: %d in, %d out\n", digitalInBufferSize, digitalOutBufferSize);
+				FDwfEnumConfigInfo(i, DECIAnalogInChannelCount, &analogInCount);
+				FDwfEnumConfigInfo(i, DECIAnalogOutChannelCount, &analogOutCount);
+				FDwfEnumConfigInfo(i, DECIAnalogIOChannelCount, &analogIOCount);
+				FDwfEnumConfigInfo(i, DECIDigitalInChannelCount, &digitalInCount);
+				FDwfEnumConfigInfo(i, DECIDigitalOutChannelCount, &digitalOutCount);
+				FDwfEnumConfigInfo(i, DECIDigitalIOChannelCount, &digitalIOCount);
+
+				FDwfEnumConfigInfo(i, DECIAnalogInBufferSize, &analogInBufferSize);
+				FDwfEnumConfigInfo(i, DECIAnalogOutBufferSize, &analogOutBufferSize);
+				FDwfEnumConfigInfo(i, DECIDigitalInBufferSize, &digitalInBufferSize);
+				FDwfEnumConfigInfo(i, DECIDigitalOutBufferSize, &digitalOutBufferSize);
+
+				LogDebug("Analog in:   %d\n", analogInCount);
+				LogDebug("Analog out:  %d\n", analogOutCount);
+				LogDebug("Analog IO:   %d\n", analogIOCount);
+				LogDebug("Digital in:  %d\n", digitalInCount);
+				LogDebug("Digital out: %d\n", digitalOutCount);
+				LogDebug("Digital IO:  %d\n", digitalIOCount);
+
+				g_numAnalogInChannels = analogInCount;
+
+				LogDebug("Analog buffer: %d in, %d out\n", analogInBufferSize, analogOutBufferSize);
+				LogDebug("Digital buffer: %d in, %d out\n", digitalInBufferSize, digitalOutBufferSize);
+			}
+		}
+
+		//Open the device
+		LogDebug("Opening device %d in config %d\n", device, config);
+		if(!FDwfDeviceConfigOpen(device, config, &g_hScope))
+		{
+			LogError("Failed to open device\n");
+			return 1;
 		}
 	}
-
-	//For now, hard code config 1 on to get best scope performance on the ADP3450
-	LogDebug("Opening device %d in config %d\n", device, config);
-	if(!FDwfDeviceConfigOpen(device, config, &g_hScope))
+	else
 	{
-		LogError("Failed to open device\n");
-		return 1;
+		LogDebug("Opening Ethernet device\n");
+
+		//TODO: figure out how to get this info
+		g_model = "Analog Discovery Pro 3450";
+		g_serial = "Unknown";
+		g_fwver = "FIXME";
+		g_numAnalogInChannels = 4;
+
+		string connstr = string("ip:") + host + "\nuser:admin\npass:admin\nsecure:1";
+		if(!FDwfDeviceOpenEx(connstr.c_str(), &g_hScope))
+		{
+			LogError("Failed to open device\n");
+			return 1;
+		}
 	}
 
 	//Initialize analog channels
